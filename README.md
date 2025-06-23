@@ -6,7 +6,7 @@ This is the official project repository for **Effortless Active Labeling for Lon
 - 🍦EATTA🍦 identifies the most valuable sample in each batch for labeling from the perspective of single-step optimization.
 - 🍦EATTA🍦 introduces a gradient norm-based debiasing method to balance the training objectives of the labeled and unlabeled data.
 
-![Frameworks](EATTA-repo/frameworks.png)
+![Frameworks](frameworks.png)
 ---
 # Environments
 Driver Version: 550.67 | CUDA Version: 12.4 | Python Version：3.10.12
