@@ -1,0 +1,40 @@
+CORRUPTION:
+  DATASET: imagenet_c
+  SEVERITY:
+    - 5
+  TYPE:
+    - gaussian_noise
+    - shot_noise
+    - impulse_noise
+    - defocus_blur
+    - glass_blur
+    - motion_blur
+    - zoom_blur
+    - snow
+    - frost
+    - fog
+    - brightness
+    - contrast
+    - elastic_transform
+    - pixelate
+    - jpeg_compression
+
+MODEL:
+  ADAPTATION: eatta
+  EDGE_CLOUD: True
+  CLOUD_ARCH: 'vit_l_16'
+  # vit_b_16 'vit_l_16' 'vit_h_14'
+  EDGE_ARCH: 'resnet50'
+  EDGE_ARCH_WEIGHTS: 'IMAGENET1K_V1'
+  HUMAN_OR_LARGE_MODEL: 'HUMAN'
+  ORACLE_NUM: 3
+  BUFFER: True
+
+OPTIM:
+  BETA: 0.9
+  LR: 0.00025
+  METHOD: SGD
+  STEPS: 1
+  WD: 0.0
+TEST:
+  BATCH_SIZE: 64
