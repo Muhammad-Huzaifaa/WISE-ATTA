@@ -56,6 +56,8 @@ class EATTA(TTAMethod):
         outputs = self.classifier(features)
         py, y_prime = F.softmax(outputs, dim=-1).max(1)
 
+
+
         entropys = self.softmax_entropy(outputs)
         ids1 = torch.where(entropys < self.e_margin)[0]
        
