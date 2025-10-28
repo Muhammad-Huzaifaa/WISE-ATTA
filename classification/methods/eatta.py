@@ -163,7 +163,7 @@ class EATTA(TTAMethod):
         """
         params = []
         names = []
-        if self.cfg.CORRUPTION.DATASET == 'imagenet_c':
+        if self.cfg.CORRUPTION.DATASET == 'imagenet_c' or self.cfg.CORRUPTION.DATASET == 'imagenet_r' or self.cfg.CORRUPTION.DATASET == 'imagenet_a' or self.cfg.CORRUPTION.DATASET == 'imagenet_k' or self.cfg.CORRUPTION.DATASET == 'pacs':
             for nm, m in self.model[1].named_modules():
                 if 'layer4' in nm:
                     continue

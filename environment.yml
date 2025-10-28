@@ -126,7 +126,7 @@ dependencies:
     - sentencepiece==0.2.0
     - six==1.16.0
     - soupsieve==2.5
-    - timm==0.9.16
+    - timm>=1.0.9,<1.1.0
     - torchdiffeq==0.2.3
     - tqdm==4.66.2
     - tzdata==2024.1

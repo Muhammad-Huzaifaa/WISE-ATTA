@@ -6,11 +6,14 @@ import torch
 import torch.nn as nn
 import torchvision
 import torchvision.transforms as transforms
+import os
 
 from open_clip import create_model_and_transforms, get_tokenizer
 from robustbench.model_zoo.architectures.utils_architectures import normalize_model, ImageNormalizer
 from robustbench.model_zoo.enums import ThreatModel
 from robustbench.utils import load_model
+from .masks_imagenet import IMAGENET_A_MASK, IMAGENET_R_MASK
+from test_atta import ResNet, Classifier, build_model
 
 from typing import Union
 from copy import deepcopy
@@ -389,9 +392,13 @@ def get_model(cfg, num_classes: int, device: Union[str, torch.device]):
             cloud_model, preprocess1 = get_torchvision_model(cfg.MODEL.CLOUD_ARCH, weight_version=cfg.MODEL.EDGE_ARCH_WEIGHTS)
             
        
-        if cfg.MODEL.EDGE_ARCH == "resnet50" or cfg.MODEL.EDGE_ARCH == "resnet18" or cfg.MODEL.EDGE_ARCH == "resnet101":
+        if cfg.MODEL.EDGE_ARCH == "resnet50" or cfg.MODEL.EDGE_ARCH == "vit_b_16" or cfg.MODEL.EDGE_ARCH == "resnet101":
             edge_model, preprocess2 = get_torchvision_model(cfg.MODEL.EDGE_ARCH, weight_version=cfg.MODEL.EDGE_ARCH_WEIGHTS)
 
+        if cfg.MODEL.EDGE_ARCH == "resnet18" and cfg.CORRUPTION.DATASET == "pacs":
+            fc_path = os.path.join(os.path.dirname(cfg.MODEL.CKPT_PATH), "fc_2.pth")
+            edge_model = build_model(cfg.MODEL.CKPT_PATH, fc_path)
+        
         base_model = [cloud_model.to(device), edge_model.to(device)]
         
         return base_model, preprocess
@@ -493,8 +500,13 @@ def split_up_model(model, arch_name: str, dataset_name: str):
         encoder = model.encoder
         classifier = model.fc
     elif "resnet" in arch_name or "resnext" in arch_name or "wide_resnet" in arch_name or arch_name in {"Standard_R50", "Hendrycks2020AugMix", "Hendrycks2020Many", "Geirhos2018_SIN"}:
-        encoder = nn.Sequential(model.normalize, *list(model.model.children())[:-1], nn.Flatten())
-        classifier = model.model.fc
+        if arch_name == "resnet18" and dataset_name == "pacs":
+            # special case for ATTA evaluation on PACS with ResNet18
+            encoder = model[0]
+            classifier = model[1]
+        else:
+            encoder = nn.Sequential(model.normalize, *list(model.model.children())[:-1], nn.Flatten())
+            classifier = model.model.fc
     elif "densenet" in arch_name:
         encoder = nn.Sequential(model.normalize, model.model.features, nn.ReLU(), nn.AdaptiveAvgPool2d((1, 1)), nn.Flatten())
         classifier = model.model.classifier

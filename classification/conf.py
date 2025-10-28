@@ -24,10 +24,13 @@ cfg = _C
 # ---------------------------------- Misc options --------------------------- #
 
 # Setting - see README.md for more information
-_C.SETTING = "continual" # "reset_each_shift"
+_C.SETTING = "reset_each_shift" # "reset_each_shift", continual
 
 # Data directory
-_C.DATA_DIR = "/data/guowei/data"
+# _C.DATA_DIR = "/mnt/lustre/work/kuehne/kqr916/high-res/RTTDP/classification/data/"
+# _C.DATA_DIR = "/mnt/lustre/work/kuehne/kqr916/high-res/EATTA/dataset/"
+# _C.DATA_DIR = "/mnt/lustre/work/kuehne/kqr916/high-res/EATTA/dataset/PACS"
+_C.DATA_DIR = "/home/huzaifa/research/EATTA/dataset"
 
 # Weight directory
 _C.CKPT_DIR = "./ckpt"
@@ -109,11 +112,13 @@ _C.CORRUPTION = CfgNode()
 _C.CORRUPTION.DATASET = 'cifar10_c'
 
 # Check https://github.com/hendrycks/robustness for corruption details
-_C.CORRUPTION.TYPE = ['gaussian_noise', 'shot_noise', 'impulse_noise',
-                      'defocus_blur', 'glass_blur', 'motion_blur', 'zoom_blur',
-                      'snow', 'frost', 'fog', 'brightness', 'contrast',
-                      'elastic_transform', 'pixelate', 'jpeg_compression']
-_C.CORRUPTION.SEVERITY = [5, 4, 3, 2, 1]
+# _C.CORRUPTION.TYPE = ['gaussian_noise', 'shot_noise', 'impulse_noise',
+#                       'defocus_blur', 'glass_blur', 'motion_blur', 'zoom_blur',
+#                       'snow', 'frost', 'fog', 'brightness', 'contrast',
+#                       'elastic_transform', 'pixelate', 'jpeg_compression']
+# _C.CORRUPTION.SEVERITY = [5, 4, 3, 2, 1]
+_C.CORRUPTION.TYPE = []
+_C.CORRUPTION.SEVERITY = []
 
 # Number of examples to evaluate. If num_ex != -1, each sequence is sub-sampled to the specified amount
 # For ImageNet-C, RobustBench loads a list containing 5000 samples.
@@ -342,6 +347,7 @@ def complete_data_dir_path(data_root_dir: str, dataset_name: str):
                "sun397": os.path.join("sun397"),                                # automatic download fails
                "ucf101": os.path.join("ucf101", "UCF-101-midframes"),           # automatic download fails
                "ccc": "",
+               "pacs": "pacs"
                }
     assert dataset_name in mapping.keys(),\
         f"Dataset '{dataset_name}' is not supported! Choose from: {list(mapping.keys())}"
@@ -381,7 +387,8 @@ def get_num_classes(dataset_name: str):
                                 "domainnet126": 126,
                                 "eurosat": 10, "flowers102": 102, "oxford_pets": 37,
                                 "dtd": 47, "food101": 101, "sun397": 397, "caltech101": 100,
-                                "ucf101": 101, "stanford_cars": 196, "fgvc_aircraft": 100
+                                "ucf101": 101, "stanford_cars": 196, "fgvc_aircraft": 100,
+                                "pacs": 7 
                                 }
     assert dataset_name in dataset_name2num_classes.keys(), \
         f"Dataset '{dataset_name}' is not supported! Choose from: {list(dataset_name2num_classes.keys())}"
@@ -391,9 +398,10 @@ def get_num_classes(dataset_name: str):
 def ckpt_path_to_domain_seq(ckpt_path: str):
     assert ckpt_path.endswith('.pth') or ckpt_path.endswith('.pt')
     domain = ckpt_path.replace('.pth', '').split(os.sep)[-1].split('_')[1]
-    mapping = {"real": ["clipart", "painting", "sketch"],
-               "clipart": ["sketch", "real", "painting"],
-               "painting": ["real", "sketch", "clipart"],
-               "sketch": ["painting", "clipart", "real"],
-               }
+    mapping = {
+        "art_painting": ["cartoon", "photo", "sketch"],
+        "cartoon": ["art_painting", "photo", "sketch"],
+        "photo": ["art_painting", "cartoon", "sketch"],
+        "sketch": ["art_painting", "cartoon", "photo"],
+    }
     return mapping[domain]

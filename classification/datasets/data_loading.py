@@ -11,7 +11,7 @@ import torchvision.transforms as transforms
 
 from typing import Union
 from conf import complete_data_dir_path, generalization_dataset_names, ds_name2pytorch_ds_name
-from datasets.corruptions_datasets import create_cifarc_dataset, create_imagenetc_dataset
+from datasets.corruptions_datasets import create_cifarc_dataset, create_imagenetc_dataset, PACSDataset
 from augmentations.transforms_adacontrast import get_augmentation_versions, get_augmentation
 from augmentations.transforms_augmix import AugMixAugmenter
 
@@ -84,6 +84,13 @@ def get_transform(dataset_name: str, adaptation: str, preprocess: Union[transfor
             transform = transforms.Compose([transforms.ToTensor()])
         elif dataset_name == "domainnet126":
             transform = get_augmentation(aug_type="test", res_size=(256, 256), crop_size=224)
+        elif dataset_name == "pacs":
+            transform = transforms.Compose([
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                std=[0.229, 0.224, 0.225])
+])
         else:
             if preprocess:
                 # set transform to the corresponding input transformation of the restored model
@@ -100,7 +107,8 @@ def get_transform(dataset_name: str, adaptation: str, preprocess: Union[transfor
 def get_test_loader(setting: str, adaptation: str, dataset_name: str, preprocess: Union[transforms.Compose, None],
                     data_root_dir: str, domain_name: str, domain_names_all: list, severity: int, num_examples: int,
                     rng_seed: int, use_clip: bool, n_views: int = 64, delta_dirichlet: float = 0.,
-                    batch_size: int = 128, shuffle: bool = False, workers: int = 4):
+                    batch_size: int = 128, shuffle: bool = False, workers: int = 4, 
+                    ANNO_ROOT = "/mnt/lustre/work/kuehne/kqr916/high-res/EATTA/dataset/"):
     """
     Create the test data loader
     Input:
@@ -198,6 +206,12 @@ def get_test_loader(setting: str, adaptation: str, dataset_name: str, preprocess
             else:
                 data_list_paths = [os.path.join("datasets", f"other_lists", f"split_zhou_{dataset_name}.json")]
                 test_dataset = ImageList(image_root=data_dir, label_files=data_list_paths, transform=transform, split="test")
+        elif dataset_name == "pacs":
+            # PACS domain = one of ["art_painting", "cartoon", "photo", "sketch"]
+            split = "test"
+            SPLIT_ROOT = os.path.join(ANNO_ROOT, "Train val splits and h5py files pre-read")
+            split_file = os.path.join(SPLIT_ROOT, f"{domain_name}_{split}_kfold.txt")
+            test_dataset = PACSDataset(split_file, data_root_dir, transform=transform)
 
         else:
             raise ValueError(f"Dataset '{dataset_name}' is not supported!")

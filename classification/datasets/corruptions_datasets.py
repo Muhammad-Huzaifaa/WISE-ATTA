@@ -7,6 +7,9 @@ from typing import Optional, Sequence
 
 from robustbench.data import CORRUPTIONS, PREPROCESSINGS, load_cifar10c, load_cifar100c
 from robustbench.loaders import CustomImageFolder, CustomCifarDataset
+from torchvision.datasets import ImageFolder
+from torch.utils.data import Dataset
+from PIL import Image
 
 logger = logging.getLogger(__name__)
 
@@ -86,3 +89,27 @@ def create_imagenetc_dataset(
         dataset_test.samples = item_list
 
     return dataset_test
+
+class PACSDataset(Dataset):
+    def __init__(self, split_file, data_root, transform=None):
+        self.samples = []
+        self.transform = transform
+        self.data_root = data_root
+        with open(split_file, "r") as f:
+            for line in f:
+                path, label = line.strip().split()
+                label = int(label) - 1  # shift to 0-based
+                self.samples.append((path, label))
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        rel_path, label = self.samples[idx]
+        img_path = os.path.join(self.data_root, rel_path)
+        img = Image.open(img_path).convert("RGB")
+        if self.transform:
+            img = self.transform(img)
+        return img, label
+
+
