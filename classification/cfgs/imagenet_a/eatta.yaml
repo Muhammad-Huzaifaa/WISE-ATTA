@@ -18,7 +18,7 @@ OPTIM:
   BETA: 0.9
   LR: 0.005
   METHOD: SGD
-  STEPS: 1
+  STEPS: 2
   WD: 0.0
 TEST:
   BATCH_SIZE: 64

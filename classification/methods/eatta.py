@@ -34,7 +34,6 @@ class EATTA(TTAMethod):
         self.mo = 0.8
         # loss function for unannotated samples
         self.softmax_entropy = Entropy()
-        # loss function for annotated samples -> cross entropy loss: F.cross_entropy(X,X)
         # use a buffer
         self.use_buffer = cfg.MODEL.BUFFER
         self.samplebuffer = SampleBuffer()
@@ -48,22 +47,29 @@ class EATTA(TTAMethod):
             param.detach_()
         #
         self.cfg = cfg
+
+        # --------- NEW (minimal): CE usage schedule ----------
+        # Always use entropy; use CE only occasionally.
+        # Default: CE every other batch (alternate batches).
+        self.ce_period = getattr(cfg.MODEL, "CE_PERIOD", 2)         # e.g., 2 -> alternate batches
+        self.ce_use_prob = getattr(cfg.MODEL, "CE_USE_PROB", None)  # optional stochastic mode
+        self.global_step = 0
+        # ------------------------------------------------------
         
-    def loss_calculation(self, x, y):
+    def loss_calculation(self, x, y, apply_ce=True):
         # forward
         imgs_test = x[0]
         features = self.featurizer(imgs_test)
         outputs = self.classifier(features)
         py, y_prime = F.softmax(outputs, dim=-1).max(1)
 
-
-
         entropys = self.softmax_entropy(outputs)
         ids1 = torch.where(entropys < self.e_margin)[0]
-       
         py, y_prime = F.softmax(outputs, dim=-1).max(1)
 
-        # effortless active labeling
+        
+
+        # effortless active labeling (only when CE is on)
         noise = torch.randn(features.size()).to(self.device) * self.noise_std # std=0.01
         fea = features.clone().detach() + noise
         out = self.classifier(fea)
@@ -73,23 +79,22 @@ class EATTA(TTAMethod):
         sorted_indices = torch.argsort(diff, descending=True)
         sorted_idx, self.cls_num_count, self.cls_diff =  self.select_(y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff)
 
-
+        # remove labeled indices from entropy set
         for i in sorted_idx:
             for j in ids1:
                 if i==j:
                     mask = ids1 != i
                     ids1 = ids1[mask]
-              
-        
 
-        loss_ent = entropys[ids1]
-        loss_ent = loss_ent.mean(0) 
-                    
+        # unsupervised entropy loss
+        if ids1.numel() > 0:
+            loss_ent = entropys[ids1].mean(0)
+        else:
+            loss_ent = entropys.mean(0)
         
-        
+        # supervised CE (human or large model)
         if self.annotator == 'HUMAN':
             loss_ce = F.cross_entropy(outputs[sorted_idx], y[sorted_idx])
-            
         elif self.annotator == 'LARGE_MODEL':
             with torch.no_grad():
                 imgs_cloud = imgs_test[sorted_idx]
@@ -99,8 +104,7 @@ class EATTA(TTAMethod):
         else:
             raise NotImplementedError
         
-         
-        # # IF BUFFER
+        # IF BUFFER (optional)
         if self.use_buffer:
             oracle_labels = y_prime_c if self.annotator == 'large_model' else y[sorted_idx]
             samples = copy.deepcopy(imgs_test)[sorted_idx]
@@ -115,43 +119,81 @@ class EATTA(TTAMethod):
                 loss_buffer = F.cross_entropy(outputs_o, labels)
             loss_ce = loss_ce + loss_buffer
         
-        # # gradient norm-based debiasing
-        # Calculate gradients of loss1
+        # gradient norm-based debiasing (only when CE is on)
         grad1 = torch.autograd.grad(loss_ent, list(param for param in self.model[1].parameters() if param.requires_grad), retain_graph=True)
         grad1_norm = torch.norm(torch.stack([g.norm() for g in grad1]))
-        # Calculate gradients of loss2
         grad2 = torch.autograd.grad(loss_ce, list(param for param in self.model[1].parameters() if param.requires_grad), retain_graph=True)
         grad2_norm = torch.norm(torch.stack([g.norm() for g in grad2]))
         
-        
-        # 动态调整权重
         w1 = 2 * grad2_norm / (grad2_norm + grad1_norm)
-        w2 = 2 * grad1_norm / (grad1_norm + grad2_norm)
+        w2 = 2 * grad1_norm / (grad2_norm + grad1_norm)
         w1 = w1.detach().item()
         w2 = w2.detach().item()
         
         self.w1_ema, self.w2_ema = update_w1_w2(w1, w2, self.w1_ema, self.w2_ema, self.mo)
         
         
-        loss = self.w1_ema * loss_ent + self.w2_ema * loss_ce 
+        # use the loss for the two connsecutive time and then skip the next two
+        if self.global_step % 4 < 2:
+
+            loss = self.w1_ema * loss_ent + self.w2_ema * loss_ce 
+            # loss = 0.15 * loss_ce 
+            # loss = 1.7 * loss_ent 
+
+
+            # If we are NOT applying CE this batch: return entropy-only loss
+            if not apply_ce:
+                # safe mean even if ids1 is empty
+                if ids1.numel() > 0:
+                    # loss = 1.7 * loss_ent
+                    loss = 0.15 * loss_ce
+                    # loss = 0 * loss
+                else:
+                    # loss = 1.7 * loss_ent
+                    loss = 0.15 * loss_ce
+                    # loss = 0 * loss
+
+                return outputs, loss
+            return outputs, loss
         
-        
-        return outputs, loss
-        
-        
+        else:
+            if self.global_step % 4 == 2:
+                loss = 1.7 * loss_ent
+            else:
+                loss = 0 * loss_ent
+            return outputs, loss
+    
+
 
     @torch.enable_grad()
     def forward_and_adapt(self, x, y):
         """Forward and adapt model on batch of data.
         Measure entropy of the model prediction, take gradients, and update params.
         """
-      
-        outputs, loss = self.loss_calculation(x, y)
+        # --- NEW (minimal): decide if we use CE this batch ---
+        if self.ce_use_prob is not None:
+            apply_ce = (random.random() < float(self.ce_use_prob))
+        elif self.ce_period is not None and self.ce_period > 0:
+            apply_ce = (self.global_step % int(self.ce_period) == 0)
+        else:
+            apply_ce = True
+        # -----------------------------------------------------
+
+        if hasattr(self.model[1], "model") and hasattr(self.model[1].model, "fc"):
+            for p in self.model[1].model.fc.parameters():
+                p.requires_grad_(not(bool(apply_ce)))   # TRUE on CE step, FALSE otherwise
+
+        outputs, loss = self.loss_calculation(x, y, apply_ce=apply_ce)
        
         loss.backward()
         self.optimizer.step()
         self.optimizer.zero_grad()
-        
+
+        self.global_step += 1
+
+        # with torch.no_grad():
+        #     features = self.featurizer(x[0])
+        #     outputs = self.classifier(features)
         
         return outputs
 
@@ -169,15 +211,6 @@ class EATTA(TTAMethod):
             for nm, m in self.model[1].named_modules():
                 if 'layer4' in nm:
                     continue
-                # if 'blocks.9' in nm:
-                #     continue
-                # if 'blocks.10' in nm:
-                #     continue
-                # if 'blocks.11' in nm:
-                #     continue
-                # if 'norm.' in nm:
-                #     continue
-                # if nm in ['norm']:
 
                 if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.LayerNorm, nn.GroupNorm)):
                     for np, p in m.named_parameters():
@@ -191,18 +224,16 @@ class EATTA(TTAMethod):
                             p.requires_grad_(True)
                             params.append(p)
                             names.append(f"{nm}.{np}")
+            # --- NEW: include final fc layer (so optimizer can update it when we unfreeze it) ---
+            if hasattr(self.model[1], "model") and hasattr(self.model[1].model, "fc"):
+                for np, p in self.model[1].model.fc.named_parameters():
+                    # keep them in the optimizer; we'll turn requires_grad on/off per step
+                    params.append(p); names.append(f"fc.{np}")
 
-                        
         return params, names
 
-  
-
     def configure_model(self):
-      
-        # self.edge_model = self.model[1]
-        # self.cloud_model = self.model[0]
         """Configure model for use with tent."""
-        # train mode, because tent optimizes the model to minimize entropy
         self.model[1].eval()  # eval mode to avoid stochastic depth in swin. test-time normalization is still applied
         self.model[0].eval()
         # disable grad, to (re-)enable only what tent updates
@@ -212,8 +243,6 @@ class EATTA(TTAMethod):
         for m in self.model[1].modules():
             if isinstance(m, nn.BatchNorm2d):
                 m.requires_grad_(True)
-                # force use of batch stats in train and eval modes
-                # m.track_running_stats = True
                 m.track_running_stats = False
                 m.running_mean = None
                 m.running_var = None
@@ -221,6 +250,10 @@ class EATTA(TTAMethod):
                 m.requires_grad_(True)
             elif isinstance(m, (nn.LayerNorm, nn.GroupNorm)):
                 m.requires_grad_(True)
+        # --- NEW: keep fc frozen by default; we'll enable it only on CE steps ---
+        if hasattr(self.model[1], "model") and hasattr(self.model[1].model, "fc"):
+            for p in self.model[1].model.fc.parameters():
+                p.requires_grad_(False)
 
     def reset(self):
         if self.model_states is None or self.optimizer_state is None:
@@ -254,13 +287,10 @@ class select_sample(nn.Module):
             diff = c_diff[sorted_indices][:self.oracle_num]
             
             for idx, i in enumerate(can):
-                
                 if i.item() not in self.last_cls:
                     cls_num_count[i.item()] += 1
                     cls_diff[i.item()] = diff[idx]
                     self.mask[idx] = True
-              
-                        
                 else:
                     if diff[idx] < cls_diff[i]:
                         can2 = y_prime[sorted_indices][self.oracle_num:]
@@ -284,10 +314,8 @@ class select_sample(nn.Module):
                 for i in y_prime[sorted_idx]:
                     self.last_cls.append(i.item())
             else:
-                
                 sorted_idx = sorted_indices[:self.oracle_num]
-                
-            # self.last_cls.append(y_prime[sorted_idx])
+            
             if len(self.last_cls)>2:
                 self.last_cls = self.last_cls[len(self.last_cls)-1:]
         
@@ -332,4 +360,3 @@ def update_w1_w2(w1, w2, w1_ema, w2_ema, momentum=0.8):
         w1_ema = momentum * w1_ema + (1-momentum) * w1
         w2_ema = momentum * w2_ema + (1-momentum) * w2
         return w1_ema, w2_ema
-    
