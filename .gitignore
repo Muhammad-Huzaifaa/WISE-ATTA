@@ -7,3 +7,4 @@ classification/models/__pycache__/
 classification/methods/__pycache__/
 classification/datasets/__pycache__/
 classification/robustbench/model_zoo/__pycache__/
+checkpoints/

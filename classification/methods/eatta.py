@@ -9,6 +9,7 @@ import random
 from methods.base import TTAMethod
 from utils.registry import ADAPTATION_REGISTRY
 from utils.losses import Entropy
+from utils.misc import set_deterministic
 from models.model import split_up_model
 from torch.utils.data import Dataset, DataLoader
 
@@ -21,6 +22,7 @@ class EATTA(TTAMethod):
     def __init__(self, cfg, model, num_classes):
         super().__init__(cfg, model, num_classes)
         # hyper-parameters (the same with EATA and SAR)
+        set_deterministic(0)
         self.e_margin = cfg.EATA.MARGIN_E0 * math.log(num_classes)   
         # hyper-parameters for effortless active labeling
         self.cls_num_count = [0 for _ in range(num_classes)]
@@ -131,7 +133,6 @@ class EATTA(TTAMethod):
         w2 = w2.detach().item()
         
         self.w1_ema, self.w2_ema = update_w1_w2(w1, w2, self.w1_ema, self.w2_ema, self.mo)
-        
         
         # use the loss for the two connsecutive time and then skip the next two
         if self.global_step % 4 < 2:

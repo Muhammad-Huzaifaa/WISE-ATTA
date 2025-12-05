@@ -1,5 +1,8 @@
 import torch
 import logging
+import os
+import random
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -21,3 +24,27 @@ def print_memory_info():
         logger.info(f"{metric:>20s}: {mem_dict[metric] / 1e6:10.2f}MB")
     logger.info('-' * 40)
     return mem_dict
+
+
+def set_deterministic(seed: int = 42):
+    # Python & NumPy
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+
+    # CUDA libraries determinism (cuBLAS)
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"  # or ":4096:8"
+
+    # PyTorch RNGs
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    # cuDNN / matmul determinism
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
+
+    # Enforce deterministic ops (warn_only=True if you prefer warnings)
+    torch.use_deterministic_algorithms(True, warn_only=False)
