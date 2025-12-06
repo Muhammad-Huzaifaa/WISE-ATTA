@@ -57,6 +57,17 @@ class EATTA(TTAMethod):
         self.ce_use_prob = getattr(cfg.MODEL, "CE_USE_PROB", None)  # optional stochastic mode
         self.global_step = 0
         # ------------------------------------------------------
+        # ---------------- anchor / teacher model (EMA of student) ----------------
+        # anchor is a slow-moving copy of the edge model (student)
+        # self.anchor_featurizer = copy.deepcopy(self.featurizer).to(self.device)
+        # self.anchor_classifier = copy.deepcopy(self.classifier).to(self.device)
+        # for p in self.anchor_featurizer.parameters():
+        #     p.requires_grad_(False)
+        # for p in self.anchor_classifier.parameters():
+        #     p.requires_grad_(False)
+        # # EMA momentum for teacher update
+        # self.anchor_momentum = getattr(cfg.MODEL, "ANCHOR_MOMENTUM", 0.90)
+        # ------------------------------------------------------------------------
         
     def loss_calculation(self, x, y, apply_ce=True):
         # forward
