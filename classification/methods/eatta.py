@@ -59,14 +59,14 @@ class EATTA(TTAMethod):
         # ------------------------------------------------------
         # ---------------- anchor / teacher model (EMA of student) ----------------
         # anchor is a slow-moving copy of the edge model (student)
-        # self.anchor_featurizer = copy.deepcopy(self.featurizer).to(self.device)
-        # self.anchor_classifier = copy.deepcopy(self.classifier).to(self.device)
-        # for p in self.anchor_featurizer.parameters():
-        #     p.requires_grad_(False)
-        # for p in self.anchor_classifier.parameters():
-        #     p.requires_grad_(False)
-        # # EMA momentum for teacher update
-        # self.anchor_momentum = getattr(cfg.MODEL, "ANCHOR_MOMENTUM", 0.90)
+        self.anchor_featurizer = copy.deepcopy(self.featurizer).to(self.device)
+        self.anchor_classifier = copy.deepcopy(self.classifier).to(self.device)
+        for p in self.anchor_featurizer.parameters():
+            p.requires_grad_(False)
+        for p in self.anchor_classifier.parameters():
+            p.requires_grad_(False)
+        # EMA momentum for teacher update
+        self.anchor_momentum = getattr(cfg.MODEL, "ANCHOR_MOMENTUM", 0.90)
         # ------------------------------------------------------------------------
         
     def loss_calculation(self, x, y, apply_ce=True):
@@ -78,36 +78,34 @@ class EATTA(TTAMethod):
 
         entropys = self.softmax_entropy(outputs)
         ids1 = torch.where(entropys < self.e_margin)[0]
-        py, y_prime = F.softmax(outputs, dim=-1).max(1)
-
-        
+        # py, y_prime = F.softmax(outputs, dim=-1).max(1)
 
         # effortless active labeling (only when CE is on)
-        noise = torch.randn(features.size()).to(self.device) * self.noise_std # std=0.01
-        fea = features.clone().detach() + noise
-        out = self.classifier(fea)
-        py2 = F.softmax(out, dim=-1)[:, y_prime]
-        py2 = torch.diag(py2)
-        diff = torch.abs(py - py2) # Eq.(3)
-        sorted_indices = torch.argsort(diff, descending=True)
-        sorted_idx, self.cls_num_count, self.cls_diff =  self.select_(y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff)
+        # noise = torch.randn(features.size()).to(self.device) * self.noise_std # std=0.01
+        # fea = features.clone().detach() + noise
+        # out = self.classifier(fea)
+        # py2 = F.softmax(out, dim=-1)[:, y_prime]
+        # py2 = torch.diag(py2)
+        # diff = torch.abs(py - py2) # Eq.(3)
+        # sorted_indices = torch.argsort(diff, descending=True)
+        # sorted_idx, self.cls_num_count, self.cls_diff =  self.select_(y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff)
 
         # ---------------- forgetting-aware active labeling ----------------
         # use prediction drift between student and EMA anchor as sample score
-        # with torch.no_grad():
-        #     anchor_features = self.anchor_featurizer(imgs_test)
-        #     anchor_outputs = self.anchor_classifier(anchor_features)  # same 200-dim head
-        #     p_anchor = F.softmax(anchor_outputs, dim=-1)
+        with torch.no_grad():
+            anchor_features = self.anchor_featurizer(imgs_test)
+            anchor_outputs = self.anchor_classifier(anchor_features)  # same 200-dim head
+            p_anchor = F.softmax(anchor_outputs, dim=-1)
 
-        # p_student = F.softmax(outputs, dim=-1)
-        # # L2 distance in probability space per sample
-        # diff = torch.norm(p_student - p_anchor, p=2, dim=1)  # [B]
+        p_student = F.softmax(outputs, dim=-1)
+        # L2 distance in probability space per sample
+        diff = torch.norm(p_student - p_anchor, p=2, dim=1)  # [B]
 
-        # # sort by drift (largest first)
-        # sorted_indices = torch.argsort(diff, descending=True)
-        # sorted_idx, self.cls_num_count, self.cls_diff = self.select_(
-        #     y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff
-        # )
+        # sort by drift (largest first)
+        sorted_indices = torch.argsort(diff, descending=True)
+        sorted_idx, self.cls_num_count, self.cls_diff = self.select_(
+            y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff
+        )
         # ------------------------------------------------------------------
         
         
