@@ -134,35 +134,29 @@ class EATTA(TTAMethod):
         
         self.w1_ema, self.w2_ema = update_w1_w2(w1, w2, self.w1_ema, self.w2_ema, self.mo)
         
-        # use the loss for the two connsecutive time and then skip the next two
-        if self.global_step % 4 < 2:
 
-            loss = self.w1_ema * loss_ent + self.w2_ema * loss_ce 
+        # use the loss for the two connsecutive time and then skip the next two
+        # if self.global_step % 4 < 2:
+
+        loss = self.w1_ema * loss_ent + self.w2_ema * loss_ce 
             # loss = 0.15 * loss_ce 
             # loss = 1.7 * loss_ent 
 
 
             # If we are NOT applying CE this batch: return entropy-only loss
-            if not apply_ce:
-                # safe mean even if ids1 is empty
-                if ids1.numel() > 0:
-                    # loss = 1.7 * loss_ent
-                    loss = 0.15 * loss_ce
-                    # loss = 0 * loss
-                else:
-                    # loss = 1.7 * loss_ent
-                    loss = 0.15 * loss_ce
-                    # loss = 0 * loss
+        if not apply_ce:
+            # safe mean even if ids1 is empty
+            loss = 0.15 * loss_ce
 
-                return outputs, loss
             return outputs, loss
+        return outputs, loss
         
-        else:
-            if self.global_step % 4 == 2:
-                loss = 1.7 * loss_ent
-            else:
-                loss = 0 * loss_ent
-            return outputs, loss
+        # else:
+        #     if self.global_step % 4 == 2:
+        #         loss = 1.7 * loss_ent
+        #     else:
+        #         loss = 0 * loss_ent
+        #     return outputs, loss
     
 
 
@@ -174,8 +168,10 @@ class EATTA(TTAMethod):
         # --- NEW (minimal): decide if we use CE this batch ---
         if self.ce_use_prob is not None:
             apply_ce = (random.random() < float(self.ce_use_prob))
-        elif self.ce_period is not None and self.ce_period > 0:
-            apply_ce = (self.global_step % int(self.ce_period) == 0)
+        # elif self.ce_period is not None and self.ce_period > 0:
+        #     apply_ce = (self.global_step % int(self.ce_period) == 0)
+        elif (self.global_step+1) % 2 == 0:
+            apply_ce = False
         else:
             apply_ce = True
         # -----------------------------------------------------
@@ -184,6 +180,17 @@ class EATTA(TTAMethod):
             for p in self.model[1].model.fc.parameters():
                 p.requires_grad_(not(bool(apply_ce)))   # TRUE on CE step, FALSE otherwise
 
+        # for nm, m in self.model[1].named_modules():
+        #     # if 'layer4' in nm:
+        #     if any(layer in nm for layer in ["layer1", "layer2", "layer3", "layer4"]):
+        #         for np, p in m.named_parameters():
+        #             # continue for batchnorm parameters 
+        #             if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.LayerNorm, nn.GroupNorm)):
+        #                 continue
+        #             if np in ['weight', 'bias']:  # weight is scale, bias is shift
+        #                 p.requires_grad_(not(bool(apply_ce)))
+
+ 
         outputs, loss = self.loss_calculation(x, y, apply_ce=apply_ce)
        
         loss.backward()
@@ -210,8 +217,8 @@ class EATTA(TTAMethod):
         names = []
         if self.cfg.CORRUPTION.DATASET == 'imagenet_c' or self.cfg.CORRUPTION.DATASET == 'imagenet_r' or self.cfg.CORRUPTION.DATASET == 'imagenet_a' or self.cfg.CORRUPTION.DATASET == 'imagenet_k' or self.cfg.CORRUPTION.DATASET == 'pacs':
             for nm, m in self.model[1].named_modules():
-                if 'layer4' in nm:
-                    continue
+                # if 'layer4' in nm:
+                #     continue
 
                 if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.LayerNorm, nn.GroupNorm)):
                     for np, p in m.named_parameters():
@@ -219,12 +226,14 @@ class EATTA(TTAMethod):
                             params.append(p)
                             names.append(f"{nm}.{np}")
 
-                if 'layer1' in nm:
-                    for np, p in m.named_parameters():
-                        if np in ['weight', 'bias']:  # weight is scale, bias is shift
-                            p.requires_grad_(True)
-                            params.append(p)
-                            names.append(f"{nm}.{np}")
+                # if 'layer4' in nm:
+                # if any(layer in nm for layer in ["layer1", "layer2", "layer3", "layer4"]):
+                #     for np, p in m.named_parameters():
+                #         if np in ['weight', 'bias']:  # weight is scale, bias is shift
+                #             p.requires_grad_(True)
+                #             params.append(p)
+                #             names.append(f"{nm}.{np}")
+                            
             # --- NEW: include final fc layer (so optimizer can update it when we unfreeze it) ---
             if hasattr(self.model[1], "model") and hasattr(self.model[1].model, "fc"):
                 for np, p in self.model[1].model.fc.named_parameters():
@@ -251,10 +260,7 @@ class EATTA(TTAMethod):
                 m.requires_grad_(True)
             elif isinstance(m, (nn.LayerNorm, nn.GroupNorm)):
                 m.requires_grad_(True)
-        # --- NEW: keep fc frozen by default; we'll enable it only on CE steps ---
-        if hasattr(self.model[1], "model") and hasattr(self.model[1].model, "fc"):
-            for p in self.model[1].model.fc.parameters():
-                p.requires_grad_(False)
+
 
     def reset(self):
         if self.model_states is None or self.optimizer_state is None:
