@@ -81,6 +81,26 @@ class EATTA(TTAMethod):
         sorted_indices = torch.argsort(diff, descending=True)
         sorted_idx, self.cls_num_count, self.cls_diff =  self.select_(y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff)
 
+        # ---------------- forgetting-aware active labeling ----------------
+        # use prediction drift between student and EMA anchor as sample score
+        # with torch.no_grad():
+        #     anchor_features = self.anchor_featurizer(imgs_test)
+        #     anchor_outputs = self.anchor_classifier(anchor_features)  # same 200-dim head
+        #     p_anchor = F.softmax(anchor_outputs, dim=-1)
+
+        # p_student = F.softmax(outputs, dim=-1)
+        # # L2 distance in probability space per sample
+        # diff = torch.norm(p_student - p_anchor, p=2, dim=1)  # [B]
+
+        # # sort by drift (largest first)
+        # sorted_indices = torch.argsort(diff, descending=True)
+        # sorted_idx, self.cls_num_count, self.cls_diff = self.select_(
+        #     y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff
+        # )
+        # ------------------------------------------------------------------
+        
+        
+        
         # remove labeled indices from entropy set
         for i in sorted_idx:
             for j in ids1:
