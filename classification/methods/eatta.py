@@ -56,17 +56,18 @@ class EATTA(TTAMethod):
         self.ce_period = getattr(cfg.MODEL, "CE_PERIOD", 2)         # e.g., 2 -> alternate batches
         self.ce_use_prob = getattr(cfg.MODEL, "CE_USE_PROB", None)  # optional stochastic mode
         self.global_step = 0
+        self.sorted_idx = None
         # ------------------------------------------------------
         # ---------------- anchor / teacher model (EMA of student) ----------------
         # anchor is a slow-moving copy of the edge model (student)
-        self.anchor_featurizer = copy.deepcopy(self.featurizer).to(self.device)
-        self.anchor_classifier = copy.deepcopy(self.classifier).to(self.device)
-        for p in self.anchor_featurizer.parameters():
-            p.requires_grad_(False)
-        for p in self.anchor_classifier.parameters():
-            p.requires_grad_(False)
-        # EMA momentum for teacher update
-        self.anchor_momentum = getattr(cfg.MODEL, "ANCHOR_MOMENTUM", 0.90)
+        # self.anchor_featurizer = copy.deepcopy(self.featurizer).to(self.device)
+        # self.anchor_classifier = copy.deepcopy(self.classifier).to(self.device)
+        # for p in self.anchor_featurizer.parameters():
+        #     p.requires_grad_(False)
+        # for p in self.anchor_classifier.parameters():
+        #     p.requires_grad_(False)
+        # # EMA momentum for teacher update
+        # self.anchor_momentum = getattr(cfg.MODEL, "ANCHOR_MOMENTUM", 0.01)
         # ------------------------------------------------------------------------
         
     def loss_calculation(self, x, y, apply_ce=True):
@@ -78,40 +79,40 @@ class EATTA(TTAMethod):
 
         entropys = self.softmax_entropy(outputs)
         ids1 = torch.where(entropys < self.e_margin)[0]
-        # py, y_prime = F.softmax(outputs, dim=-1).max(1)
 
         # effortless active labeling (only when CE is on)
-        # noise = torch.randn(features.size()).to(self.device) * self.noise_std # std=0.01
-        # fea = features.clone().detach() + noise
-        # out = self.classifier(fea)
-        # py2 = F.softmax(out, dim=-1)[:, y_prime]
-        # py2 = torch.diag(py2)
-        # diff = torch.abs(py - py2) # Eq.(3)
-        # sorted_indices = torch.argsort(diff, descending=True)
-        # sorted_idx, self.cls_num_count, self.cls_diff =  self.select_(y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff)
+        if apply_ce:
+            noise = torch.randn(features.size()).to(self.device) * self.noise_std # std=0.01
+            fea = features.clone().detach() + noise
+            out = self.classifier(fea)
+            py2 = F.softmax(out, dim=-1)[:, y_prime]
+            py2 = torch.diag(py2)
+            diff = torch.abs(py - py2) # Eq.(3)
+            sorted_indices = torch.argsort(diff, descending=True)
+            self.sorted_idx, self.cls_num_count, self.cls_diff =  self.select_(y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff)
 
         # ---------------- forgetting-aware active labeling ----------------
         # use prediction drift between student and EMA anchor as sample score
-        with torch.no_grad():
-            anchor_features = self.anchor_featurizer(imgs_test)
-            anchor_outputs = self.anchor_classifier(anchor_features)  # same 200-dim head
-            p_anchor = F.softmax(anchor_outputs, dim=-1)
+        # with torch.no_grad():
+        #     anchor_features = self.anchor_featurizer(imgs_test)
+        #     anchor_outputs = self.anchor_classifier(anchor_features)  # same 200-dim head
+        #     p_anchor = F.softmax(anchor_outputs, dim=-1)
 
-        p_student = F.softmax(outputs, dim=-1)
-        # L2 distance in probability space per sample
-        diff = torch.norm(p_student - p_anchor, p=2, dim=1)  # [B]
+        # p_student = F.softmax(outputs, dim=-1)
+        # # L2 distance in probability space per sample
+        # diff = torch.norm(p_student - p_anchor, p=2, dim=1)  # [B]
 
-        # sort by drift (largest first)
-        sorted_indices = torch.argsort(diff, descending=True)
-        sorted_idx, self.cls_num_count, self.cls_diff = self.select_(
-            y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff
-        )
+        # # sort by drift (largest first)
+        # sorted_indices = torch.argsort(diff, descending=True)
+        # sorted_idx, self.cls_num_count, self.cls_diff = self.select_(
+        #     y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff
+        # )
         # ------------------------------------------------------------------
         
         
         
         # remove labeled indices from entropy set
-        for i in sorted_idx:
+        for i in self.sorted_idx:
             for j in ids1:
                 if i==j:
                     mask = ids1 != i
@@ -125,20 +126,20 @@ class EATTA(TTAMethod):
         
         # supervised CE (human or large model)
         if self.annotator == 'HUMAN':
-            loss_ce = F.cross_entropy(outputs[sorted_idx], y[sorted_idx])
+            loss_ce = F.cross_entropy(outputs[self.sorted_idx], y[self.sorted_idx])
         elif self.annotator == 'LARGE_MODEL':
             with torch.no_grad():
-                imgs_cloud = imgs_test[sorted_idx]
+                imgs_cloud = imgs_test[self.sorted_idx]
                 cloud_outputs = self.cloud_model(imgs_cloud)
                 py_c, y_prime_c = F.softmax(cloud_outputs, dim=-1).max(1)
-            loss_ce = F.cross_entropy(outputs[sorted_idx], y_prime_c.detach())
+            loss_ce = F.cross_entropy(outputs[self.sorted_idx], y_prime_c.detach())
         else:
             raise NotImplementedError
         
         # IF BUFFER (optional)
         if self.use_buffer:
-            oracle_labels = y_prime_c if self.annotator == 'large_model' else y[sorted_idx]
-            samples = copy.deepcopy(imgs_test)[sorted_idx]
+            oracle_labels = y_prime_c if self.annotator == 'LARGE_MODEL' else y[self.sorted_idx]
+            samples = copy.deepcopy(imgs_test)[self.sorted_idx]
             self.samplebuffer.add(samples,oracle_labels)
             buffer_dataset = Buffer(self.samplebuffer.buffer)
             buffer_loader = DataLoader(buffer_dataset, batch_size=self.buffer_bs, shuffle=True)
@@ -228,9 +229,26 @@ class EATTA(TTAMethod):
 
         self.global_step += 1
 
+        # ---------------- EMA update of anchor teacher ----------------
         # with torch.no_grad():
-        #     features = self.featurizer(x[0])
-        #     outputs = self.classifier(features)
+        #     # featurizer EMA
+        #     for p_anchor, p_student in zip(
+        #         self.anchor_featurizer.parameters(),
+        #         self.featurizer.parameters()
+        #     ):
+        #         p_anchor.data.mul_(self.anchor_momentum).add_(
+        #             p_student.data * (1.0 - self.anchor_momentum)
+        #         )
+
+        #     # classifier EMA
+        #     for p_anchor, p_student in zip(
+        #         self.anchor_classifier.parameters(),
+        #         self.classifier.parameters()
+        #     ):
+        #         p_anchor.data.mul_(self.anchor_momentum).add_(
+        #             p_student.data * (1.0 - self.anchor_momentum)
+        #         )
+        # ----------------------------------------------------------------
         
         return outputs
 
