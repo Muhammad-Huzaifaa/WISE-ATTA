@@ -24,7 +24,7 @@ cfg = _C
 # ---------------------------------- Misc options --------------------------- #
 
 # Setting - see README.md for more information
-_C.SETTING = "reset_each_shift" # "reset_each_shift", continual
+_C.SETTING = "continual" # "reset_each_shift", continual
 
 # Data directory
 # _C.DATA_DIR = "/mnt/lustre/work/kuehne/kqr916/high-res/RTTDP/classification/data/"
