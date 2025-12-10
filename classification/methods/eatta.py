@@ -71,7 +71,7 @@ class EATTA(TTAMethod):
         # for p in self.anchor_classifier.parameters():
         #     p.requires_grad_(False)
         # # EMA momentum for teacher update
-        # self.anchor_momentum = getattr(cfg.MODEL, "ANCHOR_MOMENTUM", 0.01)
+        # self.anchor_momentum = getattr(cfg.MODEL, "ANCHOR_MOMENTUM", 0.90)
         # ------------------------------------------------------------------------
         
     def loss_calculation(self, x, y, apply_ce=True):
@@ -97,20 +97,21 @@ class EATTA(TTAMethod):
 
         # ---------------- forgetting-aware active labeling ----------------
         # use prediction drift between student and EMA anchor as sample score
-        # with torch.no_grad():
-        #     anchor_features = self.anchor_featurizer(imgs_test)
-        #     anchor_outputs = self.anchor_classifier(anchor_features)  # same 200-dim head
-        #     p_anchor = F.softmax(anchor_outputs, dim=-1)
+        # if apply_ce:
+        #     with torch.no_grad():
+        #         anchor_features = self.anchor_featurizer(imgs_test)
+        #         anchor_outputs = self.anchor_classifier(anchor_features)  # same 200-dim head
+        #         p_anchor = F.softmax(anchor_outputs, dim=-1)
 
-        # p_student = F.softmax(outputs, dim=-1)
-        # # L2 distance in probability space per sample
-        # diff = torch.norm(p_student - p_anchor, p=2, dim=1)  # [B]
+        #     p_student = F.softmax(outputs, dim=-1)
+        #     # L2 distance in probability space per sample
+        #     diff = torch.norm(p_student - p_anchor, p=2, dim=1)  # [B]
 
-        # # sort by drift (largest first)
-        # sorted_indices = torch.argsort(diff, descending=True)
-        # sorted_idx, self.cls_num_count, self.cls_diff = self.select_(
-        #     y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff
-        # )
+        #     # sort by drift (largest first)
+        #     sorted_indices = torch.argsort(diff, descending=True)
+        #     self.sorted_idx, self.cls_num_count, self.cls_diff = self.select_(
+        #         y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff
+        #     )
         # ------------------------------------------------------------------
         
         
@@ -259,24 +260,25 @@ class EATTA(TTAMethod):
         self.global_step += 1
 
         # ---------------- EMA update of anchor teacher ----------------
-        # with torch.no_grad():
-        #     # featurizer EMA
-        #     for p_anchor, p_student in zip(
-        #         self.anchor_featurizer.parameters(),
-        #         self.featurizer.parameters()
-        #     ):
-        #         p_anchor.data.mul_(self.anchor_momentum).add_(
-        #             p_student.data * (1.0 - self.anchor_momentum)
-        #         )
+        # if apply_ce:
+        #     with torch.no_grad():
+        #         # featurizer EMA
+        #         for p_anchor, p_student in zip(
+        #             self.anchor_featurizer.parameters(),
+        #             self.featurizer.parameters()
+        #         ):
+        #             p_anchor.data.mul_(self.anchor_momentum).add_(
+        #                 p_student.data * (1.0 - self.anchor_momentum)
+        #             )
 
-        #     # classifier EMA
-        #     for p_anchor, p_student in zip(
-        #         self.anchor_classifier.parameters(),
-        #         self.classifier.parameters()
-        #     ):
-        #         p_anchor.data.mul_(self.anchor_momentum).add_(
-        #             p_student.data * (1.0 - self.anchor_momentum)
-        #         )
+        #         # classifier EMA
+        #         for p_anchor, p_student in zip(
+        #             self.anchor_classifier.parameters(),
+        #             self.classifier.parameters()
+        #         ):
+        #             p_anchor.data.mul_(self.anchor_momentum).add_(
+        #                 p_student.data * (1.0 - self.anchor_momentum)
+        #             )
         # ----------------------------------------------------------------
         
         return outputs
