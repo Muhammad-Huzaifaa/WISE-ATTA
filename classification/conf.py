@@ -138,6 +138,8 @@ _C.OPTIM.STEPS = 1
 
 # Learning rate
 _C.OPTIM.LR = 1e-3
+_C.OPTIM.LR_STEP1 = 0.002   # default: same as LR
+_C.OPTIM.LR_STEP2 = 0.002   # default: same as LR
 
 # Optimizer choices: Adam, AdamW, SGD
 _C.OPTIM.METHOD = 'Adam'

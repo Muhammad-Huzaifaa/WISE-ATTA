@@ -57,6 +57,10 @@ class EATTA(TTAMethod):
         self.ce_use_prob = getattr(cfg.MODEL, "CE_USE_PROB", None)  # optional stochastic mode
         self.global_step = 0
         self.sorted_idx = None
+        # step-wise LR (if not present, fall back to OPTIM.LR)
+        self.lr_step1 = getattr(cfg.OPTIM, "LR_STEP1", cfg.OPTIM.LR)
+        self.lr_step2 = getattr(cfg.OPTIM, "LR_STEP2", cfg.OPTIM.LR)
+        self.current_inner_step = 0  # will be set by the outer loop
         # ------------------------------------------------------
         # ---------------- anchor / teacher model (EMA of student) ----------------
         # anchor is a slow-moving copy of the edge model (student)
@@ -205,10 +209,27 @@ class EATTA(TTAMethod):
         else:
             apply_ce = True
         # -----------------------------------------------------
+        apply_grad = not bool(apply_ce)
+        if hasattr(self.model[1], "model"):
+            backbone = self.model[1].model
 
-        if hasattr(self.model[1], "model") and hasattr(self.model[1].model, "fc"):
-            for p in self.model[1].model.fc.parameters():
-                p.requires_grad_(not(bool(apply_ce)))   # TRUE on CE step, FALSE otherwise
+            # ----- CASE 1: ResNet classifier -----
+            if hasattr(backbone, "fc"):
+                for p in backbone.fc.parameters():
+                    p.requires_grad_(apply_grad)
+
+            # ----- CASE 2: ViT classifier: model.heads.head -----
+            elif hasattr(backbone, "heads"):
+                heads = backbone.heads
+
+                if hasattr(heads, "head"):  
+                    # timm ViT (your printed architecture)
+                    for p in heads.head.parameters():
+                        p.requires_grad_(apply_grad)
+                else:
+                    # fallback: unfreeze entire heads
+                    for p in heads.parameters():
+                        p.requires_grad_(apply_grad)
 
         # for nm, m in self.model[1].named_modules():
         #     # if 'layer4' in nm:
@@ -220,7 +241,15 @@ class EATTA(TTAMethod):
         #             if np in ['weight', 'bias']:  # weight is scale, bias is shift
         #                 p.requires_grad_(not(bool(apply_ce)))
 
- 
+        if self.current_inner_step == 0:
+            lr = self.lr_step1
+        else:
+            lr = self.lr_step2
+
+        for pg in self.optimizer.param_groups:
+            pg["lr"] = lr
+
+
         outputs, loss = self.loss_calculation(x, y, apply_ce=apply_ce)
        
         loss.backward()
@@ -281,11 +310,31 @@ class EATTA(TTAMethod):
                 #             params.append(p)
                 #             names.append(f"{nm}.{np}")
                             
-            # --- NEW: include final fc layer (so optimizer can update it when we unfreeze it) ---
-            if hasattr(self.model[1], "model") and hasattr(self.model[1].model, "fc"):
-                for np, p in self.model[1].model.fc.named_parameters():
-                    # keep them in the optimizer; we'll turn requires_grad on/off per step
-                    params.append(p); names.append(f"fc.{np}")
+                # --- NEW: include classifier head (ResNet or ViT) ---
+            if hasattr(self.model[1], "model"):
+                backbone = self.model[1].model
+
+                head_module = None
+                # ResNet-style
+                if hasattr(backbone, "fc"):
+                    head_module = backbone.fc
+                    head_name_prefix = "fc"
+                # ViT-style (timm): heads.head
+                elif hasattr(backbone, "heads"):
+                    # heads is a Sequential, you showed it has attribute "head"
+                    if hasattr(backbone.heads, "head"):
+                        head_module = backbone.heads.head
+                        head_name_prefix = "heads.head"
+                    else:
+                        # fallback: treat whole heads as classifier
+                        head_module = backbone.heads
+                        head_name_prefix = "heads"
+
+                if head_module is not None:
+                    for np, p in head_module.named_parameters():
+                        p.requires_grad_(True)
+                        params.append(p)
+                        names.append(f"{head_name_prefix}.{np}")
 
         return params, names
 

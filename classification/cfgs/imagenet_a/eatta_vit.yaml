@@ -8,7 +8,7 @@ MODEL:
   EDGE_CLOUD: True
   CLOUD_ARCH: 'vit_l_16'
   # vit_b_16 'vit_l_16' 'vit_h_14'
-  EDGE_ARCH: 'resnet50'
+  EDGE_ARCH: 'vit_b_16'
   EDGE_ARCH_WEIGHTS: 'IMAGENET1K_V1'
   HUMAN_OR_LARGE_MODEL: 'HUMAN'
   ORACLE_NUM: 1
@@ -16,9 +16,11 @@ MODEL:
 
 OPTIM:
   BETA: 0.9
-  LR: 0.005
   METHOD: SGD
   STEPS: 2
+  # LR: 0.005
+  LR_STEP1: 0.005   # first inner step (e.g. strong update)
+  LR_STEP2: 0.0001
   WD: 0.0
 TEST:
   BATCH_SIZE: 64

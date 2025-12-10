@@ -113,7 +113,10 @@ class TTAMethod(nn.Module):
             self.pointer %= self.window_length
 
         else:   # common batch adaptation setting
-            for _ in range(self.steps):
+            for inner_step in range(self.steps):
+
+                self.current_inner_step = inner_step 
+                
                 outputs = self.forward_and_adapt(x,y)
 
                 # if specified, reset the model after a certain amount of update steps
