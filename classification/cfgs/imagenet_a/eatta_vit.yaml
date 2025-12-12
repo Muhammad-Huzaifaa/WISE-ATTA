@@ -17,8 +17,8 @@ MODEL:
 OPTIM:
   BETA: 0.9
   METHOD: SGD
-  STEPS: 2
-  # LR: 0.005
+  STEPS: 1
+  LR: 0.005
   LR_STEP1: 0.005   # first inner step (e.g. strong update)
   LR_STEP2: 0.0001
   WD: 0.0

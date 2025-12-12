@@ -104,6 +104,7 @@ _C.MODEL.EPISODIC = False
 
 # Reset the model after a certain amount of update steps (e.g., used in RDumb)
 _C.MODEL.RESET_AFTER_NUM_UPDATES = 0
+# _C.MODEL.ANCHOR_MOMENTUM = 0.90
 
 # ----------------------------- Corruption options -------------------------- #
 _C.CORRUPTION = CfgNode()
