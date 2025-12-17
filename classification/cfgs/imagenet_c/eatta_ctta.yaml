@@ -1,3 +1,5 @@
+SEED: 0
+SETTING: continual
 CORRUPTION:
   DATASET: imagenet_c
   SEVERITY:

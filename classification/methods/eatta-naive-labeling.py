@@ -54,7 +54,7 @@ class EATTA(TTAMethod):
         # ===================== NEW: Budget-aware labeling =====================
         # target fraction of labels compared to vanilla EATTA
         # e.g., LABEL_RATIO = 0.5 ⇒ 50% of labels
-        self.label_ratio = getattr(cfg.MODEL, "LABEL_RATIO", 1.0)
+        self.label_ratio = getattr(cfg.MODEL, "LABEL_RATIO", 0.5)
 
         # exponent for how strongly batch informativeness scales m_t
         self.budget_beta = getattr(cfg.MODEL, "BUDGET_BETA", 1.0)

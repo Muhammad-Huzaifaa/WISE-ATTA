@@ -1,3 +1,4 @@
+SEED: 0
 CORRUPTION:
   DATASET: imagenet_k
   TYPE: ["clean"]     # <- sentinel
@@ -13,7 +14,6 @@ MODEL:
   HUMAN_OR_LARGE_MODEL: 'HUMAN'
   ORACLE_NUM: 1
   BUFFER: False
-  ANCHOR_MOMENTUM: 0.95
 
 OPTIM:
   BETA: 0.9

@@ -51,9 +51,10 @@ _C.PRINT_EVERY = -1
 # Seed to use. If None, seed is not set!
 # Note that non-determinism is still present due to non-deterministic GPU ops.
 _C.RNG_SEED = 1
+_C.SEED = 0
 
 # Deterministic experiments.
-_C.DETERMINISM = False
+_C.DETERMINISM = True
 
 # Precision
 _C.MIXED_PRECISION = False
