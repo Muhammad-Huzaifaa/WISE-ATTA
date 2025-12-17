@@ -64,6 +64,7 @@ class EATTA(TTAMethod):
         self.anchor_momentum = getattr(cfg.MODEL, "ANCHOR_MOMENTUM", 0.90)
         self.count = 0
         # ------------------------------------------------------------------------
+        self.sorted_idx = None
         
     def loss_calculation(self, x, y):
         # forward
@@ -78,35 +79,37 @@ class EATTA(TTAMethod):
         py, y_prime = F.softmax(outputs, dim=-1).max(1)
 
         # effortless active labeling
-        if self.count == 0:
-            noise = torch.randn(features.size()).to(self.device) * self.noise_std # std=0.01
-            fea = features.clone().detach() + noise
-            out = self.classifier(fea)
-            py2 = F.softmax(out, dim=-1)[:, y_prime]
-            py2 = torch.diag(py2)
-            diff = torch.abs(py - py2) # Eq.(3)
-            sorted_indices = torch.argsort(diff, descending=True)
-            sorted_idx, self.cls_num_count, self.cls_diff =  self.select_(y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff)
+        if self.count % 2 == 0:
+            if self.count == 0:
+                noise = torch.randn(features.size()).to(self.device) * self.noise_std # std=0.01
+                fea = features.clone().detach() + noise
+                out = self.classifier(fea)
+                py2 = F.softmax(out, dim=-1)[:, y_prime]
+                py2 = torch.diag(py2)
+                diff = torch.abs(py - py2) # Eq.(3)
+                sorted_indices = torch.argsort(diff, descending=True)
+                self.sorted_idx, self.cls_num_count, self.cls_diff =  self.select_(y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff)
 
-        # ---------------- forgetting-aware active labeling ----------------
-        # use prediction drift between student and EMA anchor as sample score
-        else:
-            with torch.no_grad():
-                anchor_features = self.anchor_featurizer(imgs_test)
-                anchor_outputs = self.anchor_classifier(anchor_features)  # same 200-dim head
-                p_anchor = F.softmax(anchor_outputs, dim=-1)
+            # ---------------- forgetting-aware active labeling ----------------
+            # use prediction drift between student and EMA anchor as sample score
+            else:
+                with torch.no_grad():
+                    anchor_features = self.anchor_featurizer(imgs_test)
+                    anchor_outputs = self.anchor_classifier(anchor_features)  # same 200-dim head
+                    p_anchor = F.softmax(anchor_outputs, dim=-1)
 
-            p_student = F.softmax(outputs, dim=-1)
-            # L2 distance in probability space per sample
-            diff = torch.norm(p_student - p_anchor, p=2, dim=1)  # [B]
+                p_student = F.softmax(outputs, dim=-1)
+                # L2 distance in probability space per sample
+                diff = torch.norm(p_student - p_anchor, p=2, dim=1)  # [B]
 
-            # sort by drift (largest first)
-            sorted_indices = torch.argsort(diff, descending=True)
-            sorted_idx, self.cls_num_count, self.cls_diff = self.select_(
-                y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff
-            )
-        # ------------------------------------------------------------------
+                # sort by drift (largest first)
+                sorted_indices = torch.argsort(diff, descending=True)
+                self.sorted_idx, self.cls_num_count, self.cls_diff = self.select_(
+                    y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff
+                )
+            # ------------------------------------------------------------------
         
+        sorted_idx = self.sorted_idx
         for i in sorted_idx:
             for j in ids1:
                 if i==j:

@@ -18,7 +18,7 @@ MODEL:
 OPTIM:
   BETA: 0.9
   METHOD: SGD
-  STEPS: 1
+  STEPS: 2
   LR: 0.005  # 0.005 for baseline
   WD: 0.0
 TEST:
