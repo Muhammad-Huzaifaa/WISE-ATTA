@@ -21,9 +21,8 @@ class EATTA(TTAMethod):
     """
     def __init__(self, cfg, model, num_classes):
         super().__init__(cfg, model, num_classes)
-        # hyper-parameters (the same with EATA and SAR)
         self.e_margin = cfg.EATA.MARGIN_E0 * math.log(num_classes)
-        set_deterministic(cfg.SEED)   # 0, 40, 100
+        set_deterministic(cfg.SEED)  
         # hyper-parameters for effortless active labeling
         self.cls_num_count = [0 for _ in range(num_classes)]
         self.cls_diff = [0 for _ in range(num_classes)]
@@ -31,18 +30,9 @@ class EATTA(TTAMethod):
         self.select_ = select_sample(self.oracle_num, self.device)
         self.noise_std = 0.01
         # hyper-parameters for gradient norm-based denoising
-        self.w1_ema = 0
-        self.w2_ema = 0
         self.mo = 0.8
         # loss function for unannotated samples
         self.softmax_entropy = Entropy()
-        # loss function for annotated samples -> cross entropy loss: F.cross_entropy(X,X)
-        # use a buffer
-        self.use_buffer = cfg.MODEL.BUFFER
-        self.samplebuffer = SampleBuffer()
-        self.buffer_bs = 32
-        # set annotator ('human' or 'large_model')
-        self.annotator = cfg.MODEL.HUMAN_OR_LARGE_MODEL
         # split model into feature extractor and classifier
         arch_name = cfg.MODEL.EDGE_ARCH
         self.featurizer, self.classifier = split_up_model(self.model[1], arch_name, self.dataset_name) 
@@ -51,7 +41,6 @@ class EATTA(TTAMethod):
         #
         self.cfg = cfg
 
-        # ------------------------------------------------------
         # ---------------- anchor / teacher model (EMA of student) ----------------
         # anchor is a slow-moving copy of the edge model (student)
         self.anchor_featurizer = copy.deepcopy(self.featurizer).to(self.device)
@@ -61,115 +50,93 @@ class EATTA(TTAMethod):
         for p in self.anchor_classifier.parameters():
             p.requires_grad_(False)
         # EMA momentum for teacher update
-        self.anchor_momentum = getattr(cfg.MODEL, "ANCHOR_MOMENTUM", 0.90)
-        self.count = 0
+        self.anchor_momentum = getattr(cfg.MODEL, "ANCHOR_MOMENTUM", 0.9) 
+        self.batch_count = 0
         # ------------------------------------------------------------------------
+        self.sorted_idx = None
+        self.current_inner_step = 0  # will be set by the outer loop
+        self.lr_step1 = getattr(cfg.OPTIM, "LR_STEP1", cfg.OPTIM.LR)
+        self.lr_step2 = getattr(cfg.OPTIM, "LR_STEP2", cfg.OPTIM.LR)
+        self.cache_output = None
+        self.label_ratio = getattr(cfg.MODEL, "LABEL_RATIO", 0.5)  # e.g. 0.1
+        self.use_labels = False
+        self.label_budget = 0.0
+        
+
+    def only_inference(self, x):
+        with torch.no_grad():
+            features = self.featurizer(x)
+            self.cache_output = self.classifier(features)
+        return self.cache_output
         
     def loss_calculation(self, x, y):
+        # ------------------------------------------------------
+        # ---- budget-based labeling ----
+        if self.current_inner_step == 0:
+            self.batch_count += 1
+            self.label_budget += self.label_ratio     # accumulate fractional credit
+            if self.label_budget >= 1.0:
+                self.use_labels = True
+                self.label_budget -= 1.0             # spend one unit of label budget
+            else:
+                self.use_labels = False
+        # ------------------------------------------------------
+        if not self.use_labels and self.current_inner_step == 0:
+            return self.only_inference(x[0]), None
+        elif not self.use_labels and self.current_inner_step == 1:
+            return self.cache_output, None
+        else:
         # forward
-        imgs_test = x[0]
-        features = self.featurizer(imgs_test)
-        outputs = self.classifier(features)
-        py, y_prime = F.softmax(outputs, dim=-1).max(1)
+            imgs_test = x[0]
+            features = self.featurizer(imgs_test)
+            outputs = self.classifier(features)
+            py, y_prime = F.softmax(outputs, dim=-1).max(1)
 
-        entropys = self.softmax_entropy(outputs)
-        ids1 = torch.where(entropys < self.e_margin)[0]
-       
-        py, y_prime = F.softmax(outputs, dim=-1).max(1)
-
-        # effortless active labeling
-        if self.count == 0:
-            noise = torch.randn(features.size()).to(self.device) * self.noise_std # std=0.01
-            fea = features.clone().detach() + noise
-            out = self.classifier(fea)
-            py2 = F.softmax(out, dim=-1)[:, y_prime]
-            py2 = torch.diag(py2)
-            diff = torch.abs(py - py2) # Eq.(3)
-            sorted_indices = torch.argsort(diff, descending=True)
-            sorted_idx, self.cls_num_count, self.cls_diff =  self.select_(y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff)
-
-        # ---------------- forgetting-aware active labeling ----------------
-        # use prediction drift between student and EMA anchor as sample score
-        else:
-            with torch.no_grad():
-                anchor_features = self.anchor_featurizer(imgs_test)
-                anchor_outputs = self.anchor_classifier(anchor_features)  # same 200-dim head
-                p_anchor = F.softmax(anchor_outputs, dim=-1)
-
-            p_student = F.softmax(outputs, dim=-1)
-            # L2 distance in probability space per sample
-            diff = torch.norm(p_student - p_anchor, p=2, dim=1)  # [B]
-
-            # sort by drift (largest first)
-            sorted_indices = torch.argsort(diff, descending=True)
-            sorted_idx, self.cls_num_count, self.cls_diff = self.select_(
-                y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff
-            )
-        # ------------------------------------------------------------------
+            entropys = self.softmax_entropy(outputs)
+            ids1 = torch.where(entropys < self.e_margin)[0]
         
-        for i in sorted_idx:
-            for j in ids1:
-                if i==j:
-                    mask = ids1 != i
-                    ids1 = ids1[mask]
-              
-        
+            py, y_prime = F.softmax(outputs, dim=-1).max(1)
 
-        loss_ent = entropys[ids1]
-        loss_ent = loss_ent.mean(0) 
+            if self.current_inner_step == 0:
+                self.cache_output = outputs
+                # effortless active labeling
+                # ----------------
+                if self.batch_count <= 4:
+                    noise = torch.randn(features.size()).to(self.device) * self.noise_std 
+                    fea = features.clone().detach() + noise
+                    out = self.classifier(fea)
+                    py2 = F.softmax(out, dim=-1)[:, y_prime]
+                    py2 = torch.diag(py2)
+                    diff = torch.abs(py - py2) # Eq.(3)
+
+                # forgetting-aware active labeling 
+                else:
+                    with torch.no_grad():
+                        anchor_features = self.anchor_featurizer(imgs_test)
+                        anchor_outputs = self.anchor_classifier(anchor_features)  # same 200-dim head
+                        p_anchor = F.softmax(anchor_outputs, dim=-1)
+                    p_student = F.softmax(outputs, dim=-1)
+                    diff = torch.norm(p_student - p_anchor, p=2, dim=1)  # [B]
+                # ----------------
+                sorted_indices = torch.argsort(diff, descending=True)
+                self.sorted_idx, self.cls_num_count, self.cls_diff = self.select_(y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff)
+                for i in self.sorted_idx:
+                    for j in ids1:
+                        if i==j:
+                            mask = ids1 != i
+                            ids1 = ids1[mask]
+                loss_ent = entropys[ids1]
+                loss_ent = loss_ent.mean(0) 
+                # ------------------------------------------------------------------
+
+            loss_ce = F.cross_entropy(outputs[self.sorted_idx], y[self.sorted_idx])
                     
-        
-        
-        if self.annotator == 'HUMAN':
-            loss_ce = F.cross_entropy(outputs[sorted_idx], y[sorted_idx])
-            
-        elif self.annotator == 'LARGE_MODEL':
-            with torch.no_grad():
-                imgs_cloud = imgs_test[sorted_idx]
-                cloud_outputs = self.cloud_model(imgs_cloud)
-                py_c, y_prime_c = F.softmax(cloud_outputs, dim=-1).max(1)
-            loss_ce = F.cross_entropy(outputs[sorted_idx], y_prime_c.detach())
-        else:
-            raise NotImplementedError
-        
-         
-        # # IF BUFFER
-        if self.use_buffer:
-            oracle_labels = y_prime_c if self.annotator == 'large_model' else y[sorted_idx]
-            samples = copy.deepcopy(imgs_test)[sorted_idx]
-            self.samplebuffer.add(samples,oracle_labels)
-            buffer_dataset = Buffer(self.samplebuffer.buffer)
-            buffer_loader = DataLoader(buffer_dataset, batch_size=self.buffer_bs, shuffle=True)
-            
-            for imgs, labels in buffer_loader:
-                imgs, labels = imgs.to(self.device), labels.to(self.device)
-                features_o = self.featurizer(imgs).view(imgs.size(0),-1)
-                outputs_o = self.classifier(features_o)
-                loss_buffer = F.cross_entropy(outputs_o, labels)
-            loss_ce = loss_ce + loss_buffer
-        
-        # # gradient norm-based debiasing
-        # Calculate gradients of loss1
-        grad1 = torch.autograd.grad(loss_ent, list(param for param in self.model[1].parameters() if param.requires_grad), retain_graph=True)
-        grad1_norm = torch.norm(torch.stack([g.norm() for g in grad1]))
-        # Calculate gradients of loss2
-        grad2 = torch.autograd.grad(loss_ce, list(param for param in self.model[1].parameters() if param.requires_grad), retain_graph=True)
-        grad2_norm = torch.norm(torch.stack([g.norm() for g in grad2]))
-        
-        
-        # 动态调整权重
-        w1 = 2 * grad2_norm / (grad2_norm + grad1_norm)
-        w2 = 2 * grad1_norm / (grad1_norm + grad2_norm)
-        w1 = w1.detach().item()
-        w2 = w2.detach().item()
-        
-        self.w1_ema, self.w2_ema = update_w1_w2(w1, w2, self.w1_ema, self.w2_ema, self.mo)
-        
-        
-        loss = self.w1_ema * loss_ent + self.w2_ema * loss_ce 
-        
-        
-        return outputs, loss
+            if self.current_inner_step == 0:
+                loss = 1.7 * loss_ent + 0.15 * loss_ce 
+            else:
+                loss = 0.15 * loss_ce 
+
+            return self.cache_output, loss
         
         
 
@@ -177,13 +144,50 @@ class EATTA(TTAMethod):
     def forward_and_adapt(self, x, y):
         """Forward and adapt model on batch of data.
         Measure entropy of the model prediction, take gradients, and update params.
-        """
-      
+        """       
+        # -----------------------------------------------------
+        apply_grad = True if self.current_inner_step == 1 else False
+        if hasattr(self.model[1], "model"):
+            backbone = self.model[1].model
+
+            # ----- CASE 1: ResNet classifier -----
+            if hasattr(backbone, "fc"):
+                # ResNet classifier
+                for name, p in backbone.fc.named_parameters():
+                    if name == "bias":
+                        p.requires_grad_(apply_grad)   # adapt only bias
+                    else:
+                        p.requires_grad_(False)        # freeze weight
+
+            elif hasattr(backbone, "heads"):
+                heads = backbone.heads
+                if hasattr(heads, "head"):
+                    # timm ViT: heads.head
+                    for name, p in heads.head.named_parameters():
+                        if name == "bias":
+                            p.requires_grad_(apply_grad)
+                        else:
+                            p.requires_grad_(False)
+                else:
+                    for p in heads.parameters():
+                        p.requires_grad_(False)
+
+        # set learning rate
+        if self.current_inner_step == 0:
+            lr = self.lr_step1
+        else:
+            lr = self.lr_step2
+
+        for pg in self.optimizer.param_groups:
+            pg["lr"] = lr
+
         outputs, loss = self.loss_calculation(x, y)
-       
-        loss.backward()
-        self.optimizer.step()
-        self.optimizer.zero_grad()
+
+        if self.use_labels:
+            loss.backward()
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+
 
         # ---------------- EMA update of anchor teacher ----------------
         with torch.no_grad():
@@ -206,7 +210,6 @@ class EATTA(TTAMethod):
                 )
         # ----------------------------------------------------------------
         
-        self.count += 1
         return outputs
 
     def collect_params(self):
@@ -221,8 +224,6 @@ class EATTA(TTAMethod):
         names = []
         if self.cfg.CORRUPTION.DATASET == 'imagenet_c' or self.cfg.CORRUPTION.DATASET == 'imagenet_r' or self.cfg.CORRUPTION.DATASET == 'imagenet_a' or self.cfg.CORRUPTION.DATASET == 'imagenet_k':
             for nm, m in self.model[1].named_modules():
-                if 'layer4' in nm:
-                    continue
 
                 if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.LayerNorm, nn.GroupNorm)):
                     for np, p in m.named_parameters():
@@ -230,20 +231,44 @@ class EATTA(TTAMethod):
                             params.append(p)
                             names.append(f"{nm}.{np}")
 
-                if 'layer1' in nm:
-                    for np, p in m.named_parameters():
-                        if np in ['weight', 'bias']:  # weight is scale, bias is shift
+            # --- NEW: include classifier head (ResNet or ViT) ---
+            if hasattr(self.model[1], "model"):
+                backbone = self.model[1].model
+
+                head_module = None
+                # ResNet-style
+                if hasattr(backbone, "fc"):
+                    head_module = backbone.fc
+                    head_name_prefix = "fc"
+                # ViT-style (timm): heads.head
+                elif hasattr(backbone, "heads"):
+                    if hasattr(backbone.heads, "head"):
+                        head_module = backbone.heads.head
+                        head_name_prefix = "heads.head"
+                    else:
+                        head_module = backbone.heads
+                        head_name_prefix = "heads"
+
+                if head_module is not None:
+                    for np, p in head_module.named_parameters():
+                        # ---- train only bias (fraction of params) ----
+                        if np == "bias":
                             p.requires_grad_(True)
                             params.append(p)
-                            names.append(f"{nm}.{np}")
+                            names.append(f"{head_name_prefix}.{np}")
+                        else:
+                            # freeze weight (no grad, not in optimizer)
+                            p.requires_grad_(False)
+
 
                         
         return params, names
 
   
-
     def configure_model(self):
       
+        # self.edge_model = self.model[1]
+        # self.cloud_model = self.model[0]
         """Configure model for use with tent."""
         # train mode, because tent optimizes the model to minimize entropy
         self.model[1].eval()  # eval mode to avoid stochastic depth in swin. test-time normalization is still applied
@@ -255,6 +280,8 @@ class EATTA(TTAMethod):
         for m in self.model[1].modules():
             if isinstance(m, nn.BatchNorm2d):
                 m.requires_grad_(True)
+                # force use of batch stats in train and eval modes
+                # m.track_running_stats = True
                 m.track_running_stats = False
                 m.running_mean = None
                 m.running_var = None
@@ -267,10 +294,9 @@ class EATTA(TTAMethod):
         if self.model_states is None or self.optimizer_state is None:
             raise Exception("cannot reset without saved model/optimizer state")
         self.load_model_and_optimizer()
-        self.w1_ema, self.w2_ema = 0, 0
         self.cls_num_count = [0 for _ in range(self.num_classes)]
         self.cls_diff = [0 for _ in range(self.num_classes)]
-  
+
 class select_sample(nn.Module):
     def __init__(self, oracle_num, device):
         self.last_cls = []
@@ -328,48 +354,9 @@ class select_sample(nn.Module):
                 
                 sorted_idx = sorted_indices[:self.oracle_num]
                 
+            # self.last_cls.append(y_prime[sorted_idx])
             if len(self.last_cls)>2:
                 self.last_cls = self.last_cls[len(self.last_cls)-1:]
         
         return sorted_idx, cls_num_count, cls_diff
-        
-class SampleBuffer:
-    def __init__(self, capacity=300):
-        self.capacity = capacity
-        self.buffer = []
-
-    def add(self, samples, labels):
-        new_entries = list(zip(samples, labels))
-        if len(self.buffer) + len(new_entries) > self.capacity:
-            # Remove the oldest samples if buffer is full
-            excess = len(self.buffer) + len(new_entries) - self.capacity
-            self.buffer = self.buffer[excess:]
-        self.buffer.extend(new_entries)
-
-    def sample(self, batch_size):
-        return random.sample(self.buffer, batch_size)
-
-class Buffer(Dataset):
-    def __init__(self, data):
-        self.data = data
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, idx):
-        sample, label = self.data[idx]
-        return sample, label
-
-
-
-@torch.no_grad()
-def update_w1_w2(w1, w2, w1_ema, w2_ema, momentum=0.8):
-    if w1_ema == 0 and w2_ema == 0:
-        w1_ema = w1
-        w2_ema = w2
-        return w1_ema, w2_ema
-    else:
-        w1_ema = momentum * w1_ema + (1-momentum) * w1
-        w2_ema = momentum * w2_ema + (1-momentum) * w2
-        return w1_ema, w2_ema
-    
+  
