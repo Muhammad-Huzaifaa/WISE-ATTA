@@ -67,6 +67,7 @@ def create_imagenetc_dataset(
     if "mixed_domains" in setting or "correlated" in setting or n_examples != -1 or "continual" in setting or "reset_each_shift" in setting:
     # if "mixed_domains" in setting or "correlated" in setting or n_examples != -1:
         # load imagenet class to id mapping from robustbench
+        # with open(os.path.join("classification", "robustbench", "data", "imagenet_class_to_id_map.json"), 'r') as f:
         with open(os.path.join("robustbench", "data", "imagenet_class_to_id_map.json"), 'r') as f:
             class_to_idx = json.load(f)
 
@@ -79,6 +80,7 @@ def create_imagenetc_dataset(
             file_path = os.path.join("robustbench", "data", "imagenet_test_image_ids.txt")
 
         # load file containing file ids
+        # file_path = os.path.join("classification", file_path)
         with open(file_path, 'r') as f:
             fnames = f.readlines()
 

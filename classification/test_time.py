@@ -59,11 +59,13 @@ def evaluate(description):
         if i_dom == 0 or "reset_each_shift" in cfg.SETTING:
             try:
                 model.reset()
+                model.reset_config(cfg)
                 logger.info("resetting model")
             except AttributeError:
                 logger.warning("not resetting model")
         else:
             logger.warning("not resetting model")
+            model.reset_config(cfg)
 
         for severity in severities:
             test_data_loader = get_test_loader(

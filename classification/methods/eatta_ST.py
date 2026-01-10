@@ -270,6 +270,10 @@ class EATTA(TTAMethod):
         self.w1_ema, self.w2_ema = 0, 0
         self.cls_num_count = [0 for _ in range(self.num_classes)]
         self.cls_diff = [0 for _ in range(self.num_classes)]
+    
+    def reset_config(self, cfg):
+        """Reset configuration according to cfg (e.g., after a domain shift)."""
+        self.cfg = cfg
   
 class select_sample(nn.Module):
     def __init__(self, oracle_num, device):

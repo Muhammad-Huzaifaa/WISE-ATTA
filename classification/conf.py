@@ -24,7 +24,7 @@ cfg = _C
 # ---------------------------------- Misc options --------------------------- #
 
 # Setting - see README.md for more information
-_C.SETTING = "continual" # "reset_each_shift", continual
+_C.SETTING = "reset_each_shift" # "reset_each_shift", continual
 
 # Data directory
 # _C.DATA_DIR = "/mnt/lustre/work/kuehne/kqr916/high-res/RTTDP/classification/data/"
@@ -83,6 +83,7 @@ _C.MODEL.EDGE_ARCH = ''
 _C.MODEL.EDGE_ARCH_WEIGHTS = "IMAGENET1K_V1"
 _C.MODEL.BUFFER = False
 
+_C.TOTAL_TEST_BATCHES = 0
 #
 _C.MODEL.ORACLE_NUM = 0
 _C.MODEL.HUMAN_OR_LARGE_MODEL = 'HUMAN'

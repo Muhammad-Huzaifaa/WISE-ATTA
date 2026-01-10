@@ -23,7 +23,7 @@ class EATTA(TTAMethod):
         super().__init__(cfg, model, num_classes)
         # hyper-parameters (the same with EATA and SAR)
         self.e_margin = cfg.EATA.MARGIN_E0 * math.log(num_classes)
-        set_deterministic(0)   # 0, 40, 100
+        set_deterministic(cfg.SEED)   # 0, 41, 58
         # hyper-parameters for effortless active labeling
         self.cls_num_count = [0 for _ in range(num_classes)]
         self.cls_diff = [0 for _ in range(num_classes)]
@@ -50,27 +50,6 @@ class EATTA(TTAMethod):
             param.detach_()
         #
         self.cfg = cfg
-
-        # ---- new: ratio-based control & counters ----
-        # fraction of batches where we use CE + entropy
-        self.label_ratio = getattr(cfg.MODEL, "LABEL_RATIO", 1.0)  # e.g. 0.1
-        self.label_budget = 0.0
-        self.num_labels = 0  # total annotation count (sum over all batches)
-        # ---------------------------------------------
-
-        # ------------------------------------------------------
-        # ---------------- anchor / teacher model (EMA of student) ----------------
-        # anchor is a slow-moving copy of the edge model (student)
-        self.anchor_featurizer = copy.deepcopy(self.featurizer).to(self.device)
-        self.anchor_classifier = copy.deepcopy(self.classifier).to(self.device)
-        for p in self.anchor_featurizer.parameters():
-            p.requires_grad_(False)
-        for p in self.anchor_classifier.parameters():
-            p.requires_grad_(False)
-        # EMA momentum for teacher update
-        self.anchor_momentum = getattr(cfg.MODEL, "ANCHOR_MOMENTUM", 0.90)
-        self.count = 0
-        # ------------------------------------------------------------------------
         
     def loss_calculation(self, x, y):
         # forward
@@ -84,99 +63,80 @@ class EATTA(TTAMethod):
        
         py, y_prime = F.softmax(outputs, dim=-1).max(1)
 
-        # ---- new: decide if this batch uses labels or not ----
-        use_labels = False
-        # ---- budget-based labeling ----
-        self.label_budget += self.label_ratio     # accumulate fractional credit
-        if self.label_budget >= 1.0:
-            use_labels = True
-            self.label_budget -= 1.0             # spend one unit of label budget
-        # ------------------------------------------------------
+        # effortless active labeling
+        noise = torch.randn(features.size()).to(self.device) * self.noise_std # std=0.01
+        fea = features.clone().detach() + noise
+        out = self.classifier(fea)
+        py2 = F.softmax(out, dim=-1)[:, y_prime]
+        py2 = torch.diag(py2)
+        diff = torch.abs(py - py2) # Eq.(3)
+        sorted_indices = torch.argsort(diff, descending=True)
+        sorted_idx, self.cls_num_count, self.cls_diff =  self.select_(y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff)
 
-        if not use_labels:
-            # entropy-only branch (no annotation, like your old even-count case)
-            return outputs, entropys[ids1].mean(0)
+
+        for i in sorted_idx:
+            for j in ids1:
+                if i==j:
+                    mask = ids1 != i
+                    ids1 = ids1[mask]
+              
         
-        else: 
-            # ---------------- forgetting-aware active labeling ----------------
-            # use prediction drift between student and EMA anchor as sample score
+
+        loss_ent = entropys[ids1]
+        loss_ent = loss_ent.mean(0) 
+                    
+        
+        
+        if self.annotator == 'HUMAN':
+            loss_ce = F.cross_entropy(outputs[sorted_idx], y[sorted_idx])
+            
+        elif self.annotator == 'LARGE_MODEL':
             with torch.no_grad():
-                anchor_features = self.anchor_featurizer(imgs_test)
-                anchor_outputs = self.anchor_classifier(anchor_features)  # same 200-dim head
-                p_anchor = F.softmax(anchor_outputs, dim=-1)
-
-            p_student = F.softmax(outputs, dim=-1)
-            # L2 distance in probability space per sample
-            diff = torch.norm(p_student - p_anchor, p=2, dim=1)  # [B]
-
-            # sort by drift (largest first)
-            sorted_indices = torch.argsort(diff, descending=True)
-            sorted_idx, self.cls_num_count, self.cls_diff = self.select_(
-                y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff
-            )
-            # ------------------------------------------------------------------            
-            for i in sorted_idx:
-                for j in ids1:
-                    if i==j:
-                        mask = ids1 != i
-                        ids1 = ids1[mask]
-                
-            
-
-            loss_ent = entropys[ids1]
-            loss_ent = loss_ent.mean(0) 
-             # ---- new: track how many labels we used this batch ----
-            self.num_labels += len(sorted_idx)       
+                imgs_cloud = imgs_test[sorted_idx]
+                cloud_outputs = self.cloud_model(imgs_cloud)
+                py_c, y_prime_c = F.softmax(cloud_outputs, dim=-1).max(1)
+            loss_ce = F.cross_entropy(outputs[sorted_idx], y_prime_c.detach())
+        else:
+            raise NotImplementedError
         
-            if self.annotator == 'HUMAN':
-                loss_ce = F.cross_entropy(outputs[sorted_idx], y[sorted_idx])
-                
-            elif self.annotator == 'LARGE_MODEL':
-                with torch.no_grad():
-                    imgs_cloud = imgs_test[sorted_idx]
-                    cloud_outputs = self.cloud_model(imgs_cloud)
-                    py_c, y_prime_c = F.softmax(cloud_outputs, dim=-1).max(1)
-                loss_ce = F.cross_entropy(outputs[sorted_idx], y_prime_c.detach())
-            else:
-                raise NotImplementedError
+         
+        # # IF BUFFER
+        if self.use_buffer:
+            oracle_labels = y_prime_c if self.annotator == 'large_model' else y[sorted_idx]
+            samples = copy.deepcopy(imgs_test)[sorted_idx]
+            self.samplebuffer.add(samples,oracle_labels)
+            buffer_dataset = Buffer(self.samplebuffer.buffer)
+            buffer_loader = DataLoader(buffer_dataset, batch_size=self.buffer_bs, shuffle=True)
             
-            
-            # # IF BUFFER
-            if self.use_buffer:
-                oracle_labels = y_prime_c if self.annotator == 'large_model' else y[sorted_idx]
-                samples = copy.deepcopy(imgs_test)[sorted_idx]
-                self.samplebuffer.add(samples,oracle_labels)
-                buffer_dataset = Buffer(self.samplebuffer.buffer)
-                buffer_loader = DataLoader(buffer_dataset, batch_size=self.buffer_bs, shuffle=True)
-                
-                for imgs, labels in buffer_loader:
-                    imgs, labels = imgs.to(self.device), labels.to(self.device)
-                    features_o = self.featurizer(imgs).view(imgs.size(0),-1)
-                    outputs_o = self.classifier(features_o)
-                    loss_buffer = F.cross_entropy(outputs_o, labels)
-                loss_ce = loss_ce + loss_buffer
-            
-            # # gradient norm-based debiasing
-            # Calculate gradients of loss1
-            grad1 = torch.autograd.grad(loss_ent, list(param for param in self.model[1].parameters() if param.requires_grad), retain_graph=True)
-            grad1_norm = torch.norm(torch.stack([g.norm() for g in grad1]))
-            # Calculate gradients of loss2
-            grad2 = torch.autograd.grad(loss_ce, list(param for param in self.model[1].parameters() if param.requires_grad), retain_graph=True)
-            grad2_norm = torch.norm(torch.stack([g.norm() for g in grad2]))
-            
-            
-            # 动态调整权重
-            w1 = 2 * grad2_norm / (grad2_norm + grad1_norm)
-            w2 = 2 * grad1_norm / (grad1_norm + grad2_norm)
-            w1 = w1.detach().item()
-            w2 = w2.detach().item()
-            
-            self.w1_ema, self.w2_ema = update_w1_w2(w1, w2, self.w1_ema, self.w2_ema, self.mo)
-            
-            
-            loss = self.w1_ema * loss_ent + self.w2_ema * loss_ce 
-            
-            return outputs, loss
+            for imgs, labels in buffer_loader:
+                imgs, labels = imgs.to(self.device), labels.to(self.device)
+                features_o = self.featurizer(imgs).view(imgs.size(0),-1)
+                outputs_o = self.classifier(features_o)
+                loss_buffer = F.cross_entropy(outputs_o, labels)
+            loss_ce = loss_ce + loss_buffer
+        
+        # # gradient norm-based debiasing
+        # Calculate gradients of loss1
+        grad1 = torch.autograd.grad(loss_ent, list(param for param in self.model[1].parameters() if param.requires_grad), retain_graph=True)
+        grad1_norm = torch.norm(torch.stack([g.norm() for g in grad1]))
+        # Calculate gradients of loss2
+        grad2 = torch.autograd.grad(loss_ce, list(param for param in self.model[1].parameters() if param.requires_grad), retain_graph=True)
+        grad2_norm = torch.norm(torch.stack([g.norm() for g in grad2]))
+        
+        
+        # 动态调整权重
+        w1 = 2 * grad2_norm / (grad2_norm + grad1_norm)
+        w2 = 2 * grad1_norm / (grad1_norm + grad2_norm)
+        w1 = w1.detach().item()
+        w2 = w2.detach().item()
+        
+        self.w1_ema, self.w2_ema = update_w1_w2(w1, w2, self.w1_ema, self.w2_ema, self.mo)
+        
+        
+        loss = self.w1_ema * loss_ent + self.w2_ema * loss_ce 
+        
+        
+        return outputs, loss
         
         
 
@@ -191,35 +151,8 @@ class EATTA(TTAMethod):
         loss.backward()
         self.optimizer.step()
         self.optimizer.zero_grad()
-
-        # ---------------- EMA update of anchor teacher ----------------
-        if self.count % 2 == 0:
-            with torch.no_grad():
-                # featurizer EMA
-                for p_anchor, p_student in zip(
-                    self.anchor_featurizer.parameters(),
-                    self.featurizer.parameters()
-                ):
-                    p_anchor.data.mul_(self.anchor_momentum).add_(
-                        p_student.data * (1.0 - self.anchor_momentum)
-                    )
-
-                # classifier EMA
-                for p_anchor, p_student in zip(
-                    self.anchor_classifier.parameters(),
-                    self.classifier.parameters()
-                ):
-                    p_anchor.data.mul_(self.anchor_momentum).add_(
-                        p_student.data * (1.0 - self.anchor_momentum)
-                    )
-        # ----------------------------------------------------------------
         
-        self.count += 1
-        # ---- new: optional debug print ----
-        # You can change the frequency (e.g. every 50 batches).
-        # if self.count % 50 == 0:
-        #     print(f"[EATTA] Batches processed: {self.count}, labels used: {self.num_labels}")
-        # -----------------------------------
+        
         return outputs
 
     def collect_params(self):
@@ -236,15 +169,6 @@ class EATTA(TTAMethod):
             for nm, m in self.model[1].named_modules():
                 if 'layer4' in nm:
                     continue
-                # if 'blocks.9' in nm:
-                #     continue
-                # if 'blocks.10' in nm:
-                #     continue
-                # if 'blocks.11' in nm:
-                #     continue
-                # if 'norm.' in nm:
-                #     continue
-                # if nm in ['norm']:
 
                 if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.LayerNorm, nn.GroupNorm)):
                     for np, p in m.named_parameters():
@@ -296,6 +220,10 @@ class EATTA(TTAMethod):
         self.w1_ema, self.w2_ema = 0, 0
         self.cls_num_count = [0 for _ in range(self.num_classes)]
         self.cls_diff = [0 for _ in range(self.num_classes)]
+        
+    def reset_config(self, cfg):
+        """Reset configuration according to cfg (e.g., after a domain shift)."""
+        self.cfg = cfg
   
 class select_sample(nn.Module):
     def __init__(self, oracle_num, device):

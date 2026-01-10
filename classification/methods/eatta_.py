@@ -60,8 +60,11 @@ class EATTA(TTAMethod):
         self.cache_output = None
         self.label_ratio = getattr(cfg.MODEL, "LABEL_RATIO", 0.5)  # e.g. 0.1
         self.use_labels = False
-        self.label_budget = 0.0
-        
+        self.total_test_batches = getattr(cfg, "TOTAL_TEST_BATCHES", None)
+        self.label_batch_indices = None  # will hold chosen batch indices to label
+        self._rand = random.Random(getattr(cfg, "SEED", 0))
+        self._init_label_batches()
+
 
     def only_inference(self, x):
         with torch.no_grad():
@@ -71,20 +74,20 @@ class EATTA(TTAMethod):
         
     def loss_calculation(self, x, y):
         # ------------------------------------------------------
-        # ---- budget-based labeling ----
         if self.current_inner_step == 0:
+            # determine whether current batch is chosen for labeling
+            self.use_labels = (self.batch_count in self.label_batch_indices)
             self.batch_count += 1
-            self.label_budget += self.label_ratio     # accumulate fractional credit
-            if self.label_budget >= 1.0:
-                self.use_labels = True
-                self.label_budget -= 1.0             # spend one unit of label budget
-            else:
-                self.use_labels = False
         # ------------------------------------------------------
         if not self.use_labels and self.current_inner_step == 0:
-            return self.only_inference(x[0]), None
+            return None, None
         elif not self.use_labels and self.current_inner_step == 1:
-            return self.cache_output, None
+            features = self.featurizer(x[0])
+            outputs = self.classifier(features)
+            entropys = self.softmax_entropy(outputs)
+            ids1 = torch.where(entropys < self.e_margin)[0]
+            entropys_loss = entropys[ids1].mean(0)
+            return outputs, 0.1 * entropys_loss
         else:
         # forward
             imgs_test = x[0]
@@ -187,6 +190,11 @@ class EATTA(TTAMethod):
             loss.backward()
             self.optimizer.step()
             self.optimizer.zero_grad()
+        else:
+            if self.current_inner_step == 1:
+                loss.backward()
+                self.optimizer.step()
+                self.optimizer.zero_grad()
 
 
         # ---------------- EMA update of anchor teacher ----------------
@@ -222,49 +230,69 @@ class EATTA(TTAMethod):
         """
         params = []
         names = []
-        if self.cfg.CORRUPTION.DATASET == 'imagenet_c' or self.cfg.CORRUPTION.DATASET == 'imagenet_r' or self.cfg.CORRUPTION.DATASET == 'imagenet_a' or self.cfg.CORRUPTION.DATASET == 'imagenet_k':
-            for nm, m in self.model[1].named_modules():
 
-                if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.LayerNorm, nn.GroupNorm)):
-                    for np, p in m.named_parameters():
-                        if np in ['weight', 'bias'] and p.requires_grad:  # weight is scale, bias is shift
-                            params.append(p)
-                            names.append(f"{nm}.{np}")
+        ds = self.cfg.CORRUPTION.DATASET
+        is_imagenet_c = (ds == "imagenet_c")
+        is_other = (ds in {"imagenet_r", "imagenet_a", "imagenet_k"})
 
-            # --- NEW: include classifier head (ResNet or ViT) ---
-            if hasattr(self.model[1], "model"):
-                backbone = self.model[1].model
+        # If dataset isn't one of the expected ones, keep old behavior (return empty)
+        if not (is_imagenet_c or is_other):
+            return params, names
 
-                head_module = None
-                # ResNet-style
-                if hasattr(backbone, "fc"):
-                    head_module = backbone.fc
-                    head_name_prefix = "fc"
-                # ViT-style (timm): heads.head
-                elif hasattr(backbone, "heads"):
-                    if hasattr(backbone.heads, "head"):
-                        head_module = backbone.heads.head
-                        head_name_prefix = "heads.head"
+        for nm, m in self.model[1].named_modules():
+
+            # imagenet_c only: skip layer4
+            if is_imagenet_c and ("layer4" in nm):
+                continue
+
+            # collect norm params (only if currently requires_grad=True)
+            if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.LayerNorm, nn.GroupNorm)):
+                for np, p in m.named_parameters():
+                    if np in ["weight", "bias"] and p.requires_grad:
+                        params.append(p)
+                        names.append(f"{nm}.{np}")
+
+            # imagenet_c only: force layer1 params to be trainable + include them
+            if is_imagenet_c and ("layer1" in nm):
+                for np, p in m.named_parameters():
+                    if np in ["weight", "bias"]:
+                        p.requires_grad_(True)
+                        params.append(p)
+                        names.append(f"{nm}.{np}")
+
+        # --- include classifier head (ResNet or ViT) ---
+        if hasattr(self.model[1], "model"):
+            backbone = self.model[1].model
+
+            head_module = None
+            # ResNet-style
+            if hasattr(backbone, "fc"):
+                head_module = backbone.fc
+                head_name_prefix = "fc"
+            # ViT-style (timm): heads.head
+            elif hasattr(backbone, "heads"):
+                if hasattr(backbone.heads, "head"):
+                    head_module = backbone.heads.head
+                    head_name_prefix = "heads.head"
+                else:
+                    head_module = backbone.heads
+                    head_name_prefix = "heads"
+
+            if head_module is not None:
+                for np, p in head_module.named_parameters():
+                    # train only bias
+                    if np == "bias":
+                        p.requires_grad_(True)
+                        params.append(p)
+                        names.append(f"{head_name_prefix}.{np}")
                     else:
-                        head_module = backbone.heads
-                        head_name_prefix = "heads"
+                        # freeze weight
+                        p.requires_grad_(False)
 
-                if head_module is not None:
-                    for np, p in head_module.named_parameters():
-                        # ---- train only bias (fraction of params) ----
-                        if np == "bias":
-                            p.requires_grad_(True)
-                            params.append(p)
-                            names.append(f"{head_name_prefix}.{np}")
-                        else:
-                            # freeze weight (no grad, not in optimizer)
-                            p.requires_grad_(False)
-
-
-                        
         return params, names
 
   
+
     def configure_model(self):
       
         # self.edge_model = self.model[1]
@@ -296,6 +324,29 @@ class EATTA(TTAMethod):
         self.load_model_and_optimizer()
         self.cls_num_count = [0 for _ in range(self.num_classes)]
         self.cls_diff = [0 for _ in range(self.num_classes)]
+    
+    def _init_label_batches(self):
+        if self.label_batch_indices is not None:
+            return
+
+        if self.total_test_batches is None:
+            raise ValueError("total_test_batches is None — please set cfg.TEST.TOTAL_TEST_BATCHES or call set_total_batches().")
+
+        # compute how many batches should be labeled (rounded)
+        num_label_batches = int(round(self.total_test_batches * float(self.label_ratio)))
+        num_label_batches = min(max(num_label_batches, 0), self.total_test_batches)
+
+        # pick random unique indices
+        all_indices = list(range(self.total_test_batches))
+        if num_label_batches == 0:
+            chosen = []
+        elif num_label_batches == self.total_test_batches:
+            chosen = all_indices
+        else:
+            chosen = self._rand.sample(all_indices, k=num_label_batches)
+
+        # store as a set for O(1) membership tests
+        self.label_batch_indices = set(chosen)
 
 class select_sample(nn.Module):
     def __init__(self, oracle_num, device):

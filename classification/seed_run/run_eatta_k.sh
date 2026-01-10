@@ -12,12 +12,3 @@ for SEED in "${SEEDS[@]}"; do
         SEED "$SEED"
 done
 
-CONFIG=cfgs/imagenet_k/eatta_vit.yaml
-echo "Running for fully test-time adaptation on ImageNet-K on vit with EATTA"
-
-for SEED in "${SEEDS[@]}"; do
-    echo "Running seed = $SEED"
-    CUDA_VISIBLE_DEVICES=3 python test_time.py \
-        --cfg "$CONFIG" \
-        SEED "$SEED"
-done

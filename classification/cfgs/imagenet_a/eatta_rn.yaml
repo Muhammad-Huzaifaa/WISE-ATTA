@@ -1,4 +1,5 @@
 SEED: 0
+TOTAL_TEST_BATCHES: 118
 CORRUPTION:
   DATASET: imagenet_a
   TYPE: ["clean"]     # <- sentinel
@@ -19,7 +20,9 @@ OPTIM:
   BETA: 0.9
   METHOD: SGD
   STEPS: 2
-  LR: 0.005  # 0.005 for baseline
+  LR: 0.005  
+  LR_STEP1: 0.001   
+  LR_STEP2: 0.004   
   WD: 0.0
 TEST:
   BATCH_SIZE: 64

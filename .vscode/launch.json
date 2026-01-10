@@ -8,7 +8,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "args": [
-                "--cfg", "classification/cfgs/imagenet_a/eatta_rn.yaml"
+                "--cfg", "classification/cfgs/imagenet_a/eatta_vit.yaml"
             ],
             "env": {
                 "CUDA_VISIBLE_DEVICES": "3"

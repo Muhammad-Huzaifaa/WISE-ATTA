@@ -18,8 +18,10 @@ import numpy as np
 
 
 def make_custom_dataset(root, path_imgs, cls_dict):
+    # path_imgs = os.path.join("classification", path_imgs)
     with open(path_imgs, 'r') as f:
         fnames = f.readlines()
+    # cls_dict = os.path.join("classification", cls_dict)
     with open(cls_dict, 'r') as f:
         class_to_idx = json.load(f)
     images = [(os.path.join(root, c.split('\n')[0]), class_to_idx[c.split(os.sep)[0]]) for c in fnames]
