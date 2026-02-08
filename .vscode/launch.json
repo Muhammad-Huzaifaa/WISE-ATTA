@@ -8,10 +8,10 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "args": [
-                "--cfg", "classification/cfgs/imagenet_a/eatta_vit.yaml"
+                "--cfg", "classification/cfgs/imagenet_r/eatta_rn.yaml"
             ],
             "env": {
-                "CUDA_VISIBLE_DEVICES": "3"
+                "CUDA_VISIBLE_DEVICES": "0"
             }
         }
     ]

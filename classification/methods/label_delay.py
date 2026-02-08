@@ -52,14 +52,6 @@ class EATTA(TTAMethod):
                 feats_s = self.featurizer(x[0])
                 out_s = self.classifier(feats_s)
                 ent = self.softmax_entropy(out_s)  # [B]
-                # py, y_prime = F.softmax(out_s, dim=-1).max(1)
-                # p_s = F.softmax(out_s, dim=-1)
-                # feats_a = self.anchor_featurizer(x[0])
-                # out_a = self.anchor_classifier(feats_a)
-                # p_a = F.softmax(out_a, dim=-1)
-                # div = torch.norm(p_s - p_a, p=2, dim=1)  # [B]
-                # u_div = (div.topk(k=1, largest=True).values).mean().item()
-                # count entropy idx that is less than margin
                 ids = torch.where(ent < self.e_margin)[0]
                 utility = len(ids) #+ u_div
 
@@ -80,17 +72,31 @@ class EATTA(TTAMethod):
         else:
         # forward
             imgs_test = x[0]
+            y_test = y
+
+            offset = 0
+            if self.delayed_item is not None:
+                d_img_cpu, d_y_cpu = self.delayed_item
+                d_img = d_img_cpu.to(self.device).unsqueeze(0)  # [1,C,H,W]
+                d_y   = d_y_cpu.to(self.device).unsqueeze(0)    # [1]
+                imgs_test = torch.cat([d_img, imgs_test], dim=0)
+                y_test    = torch.cat([d_y, y_test], dim=0)
+                offset = 1
+
             features = self.featurizer(imgs_test)
             outputs = self.classifier(features)
             py, y_prime = F.softmax(outputs, dim=-1).max(1)
 
-            entropys = self.softmax_entropy(outputs)
+            entropys = self.softmax_entropy(outputs[offset:])
             ids1 = torch.where(entropys < self.e_margin)[0]
-        
-            py, y_prime = F.softmax(outputs, dim=-1).max(1)
+            
+            # if self.top1_idx is not None:
+            #     ids1 = ids1[ids1 != self.top1_idx]
+
+            py, y_prime = F.softmax(outputs[offset:], dim=-1).max(1)
 
             if self.current_inner_step == 0:
-                self.cache_output = outputs
+                self.cache_output = outputs[offset:]
                 # effortless active labeling
                 # ----------------
                 if self.batch_count <= 4:
@@ -105,12 +111,27 @@ class EATTA(TTAMethod):
                     with torch.no_grad():
                         anchor_features = self.anchor_featurizer(imgs_test)
                         anchor_outputs = self.anchor_classifier(anchor_features)  # same 200-dim head
-                        p_anchor = F.softmax(anchor_outputs, dim=-1)
-                    p_student = F.softmax(outputs, dim=-1)
+                        p_anchor = F.softmax(anchor_outputs[offset:], dim=-1)
+                    p_student = F.softmax(outputs[offset:], dim=-1)
                     diff = torch.norm(p_student - p_anchor, p=2, dim=1)  # [B]
                 # ------------------------------------------------------------------
                 sorted_indices = torch.argsort(diff, descending=True)
                 self.sorted_idx, self.cls_num_count, self.cls_diff = self.select_(y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff)
+                # keep only top-1 for delayed labeling
+                self.top1_idx = self.sorted_idx[0].item()  # int
+
+                # enqueue (img,label) for delayed supervision
+                self.label_queue.append((
+                    x[0][self.top1_idx].detach().cpu(),
+                    y[self.top1_idx].detach().cpu()
+                ))
+
+                # pop AFTER enqueue so LABEL_DELAY=0 works
+                if len(self.label_queue) > self.label_delay:
+                    self.delayed_item = self.label_queue.popleft()
+                else:
+                    self.delayed_item = None
+
                 for i in self.sorted_idx:
                     for j in ids1:
                         if i==j:
@@ -120,12 +141,22 @@ class EATTA(TTAMethod):
                 loss_ent = loss_ent.mean(0) 
                 # ------------------------------------------------------------------
 
-            loss_ce = F.cross_entropy(outputs[self.sorted_idx], y[self.sorted_idx])
+            # loss_ce = F.cross_entropy(outputs[self.sorted_idx], y[self.sorted_idx])
+            loss_ce = None
+            if offset > 0:
+                loss_ce = F.cross_entropy(outputs[:offset], y_test[:offset])
                     
             if self.current_inner_step == 0:
-                loss = 1.7 * loss_ent + 0.15 * loss_ce 
+                if loss_ce is None:
+                    loss = 1.7 * loss_ent
+                else:
+                    loss = 1.7 * loss_ent + 0.15 * loss_ce
             else:
-                loss = 0.15 * loss_ce 
+                # step1: if no delayed label yet -> entropy only (your desired behavior)
+                if loss_ce is None:
+                    loss =  None
+                else:
+                    loss = 0.15 * loss_ce
 
             return self.cache_output, loss
         
@@ -174,12 +205,12 @@ class EATTA(TTAMethod):
 
         outputs, loss = self.loss_calculation(x, y)
 
-        if self.use_labels:
+        if self.use_labels and loss is not None:
             loss.backward()
             self.optimizer.step()
             self.optimizer.zero_grad()
         else:
-            if self.current_inner_step == 1:
+            if self.current_inner_step == 1 and loss is not None:
                 loss.backward()
                 self.optimizer.step()
                 self.optimizer.zero_grad()
@@ -357,7 +388,11 @@ class EATTA(TTAMethod):
         self.label_budget = 0.0
         self.count = 0
         # ------------------------------------------------------
-
+        self.label_delay = getattr(cfg.MODEL, "LABEL_DELAY",200)
+        self.label_queue = deque()          # stores (img_cpu, y_cpu)
+        self.delayed_item = None            # popped (img_cpu, y_cpu) usable now
+        self.top1_idx = None                # selected top-1 index for current batch (to exclude from entropy)
+        self.loss_ent = None
 
 class select_sample(nn.Module):
     def __init__(self, oracle_num, device):

@@ -1,5 +1,5 @@
 TOTAL_TEST_BATCHES: 469
-SEED: 0
+SEED: 44
 CORRUPTION:
   DATASET: imagenet_r
   TYPE: ["clean"]     

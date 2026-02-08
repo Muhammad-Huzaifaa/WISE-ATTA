@@ -11,8 +11,8 @@ from utils.registry import ADAPTATION_REGISTRY
 from utils.losses import Entropy
 from models.model import split_up_model
 from utils.misc import set_deterministic
+from utils.misc import SelectionStatsLogger
 from torch.utils.data import Dataset, DataLoader
-from collections import deque
 
 
 @ADAPTATION_REGISTRY.register()
@@ -65,75 +65,136 @@ class EATTA(TTAMethod):
         self.anchor_momentum = getattr(cfg.MODEL, "ANCHOR_MOMENTUM", 0.90)
         self.count = 0
         # ------------------------------------------------------------------------
-        # ---- label delay ----
-        self.label_delay = getattr(cfg.MODEL, "LABEL_DELAY", 1)  # e.g. 0,1,2...
-        self.label_queue = deque()  # stores (img_cpu, y_cpu)
-        self.sorted_idx = None
+        self.log_selection = getattr(cfg, "LOG_SELECTION", True)
+        self.query_strategy = getattr(cfg.MODEL, "QUERY_STRATEGY", "pds_drift")  # default
 
+        self.log_path = os.path.join(
+            "/mnt/SAS_A/huzaifa/research/RobustAdaptation/plots",
+            f"selection_stats_{cfg.CORRUPTION.DATASET}_{self.query_strategy}_seed{cfg.SEED}.csv"
+        )
+        self.stats_logger = SelectionStatsLogger(self.log_path) if self.log_selection else None
+
+        # shadow selectors for fair comparison (independent state from training selector)
+        self.sel_entropy = select_sample(self.oracle_num, self.device)
+        self.sel_eatta   = select_sample(self.oracle_num, self.device)
+        self.sel_pds     = select_sample(self.oracle_num, self.device)
+
+        self.cls_cnt_entropy = [0 for _ in range(num_classes)]
+        self.cls_cnt_eatta   = [0 for _ in range(num_classes)]
+        self.cls_cnt_pds     = [0 for _ in range(num_classes)]
+
+        self.cls_diff_entropy = [0 for _ in range(num_classes)]
+        self.cls_diff_eatta   = [0 for _ in range(num_classes)]
+        self.cls_diff_pds     = [0 for _ in range(num_classes)]
+
+        self.batch_id = 0  # increments each forward
         
     def loss_calculation(self, x, y):
         # forward
-        # ---------------- delayed labeled sample becomes available ----------------
-        delayed = None
-        if self.label_delay > 0 and len(self.label_queue) >= self.label_delay:
-            delayed = self.label_queue.popleft()  # (img_cpu, y_cpu)
-        
         imgs_test = x[0]
-        if delayed is not None:
-            d_img_cpu, d_y_cpu = delayed
-            d_img = d_img_cpu.to(self.device).unsqueeze(0)  # [1,C,H,W]
-            imgs_test = torch.cat([d_img, imgs_test], dim=0)
-            offset = 1
-        else:
-            offset = 0
-
-        # imgs_test = x[0]
         features = self.featurizer(imgs_test)
         outputs = self.classifier(features)
+        py, y_prime = F.softmax(outputs, dim=-1).max(1)
 
-        # outputs = outputs[offset:]  # only current batch outputs
-        py, y_prime = F.softmax(outputs[offset:], dim=-1).max(1)
-        entropys = self.softmax_entropy(outputs)[offset:]
+        entropys = self.softmax_entropy(outputs)
+
+
+        with torch.no_grad():
+            # ---- PDS drift scores for ALL samples ----
+            anchor_features = self.anchor_featurizer(imgs_test)
+            anchor_outputs = self.anchor_classifier(anchor_features)
+            p_anchor = F.softmax(anchor_outputs, dim=-1)
+            p_student = F.softmax(outputs, dim=-1)
+            pds_drift_vec = torch.norm(p_student - p_anchor, p=2, dim=1)  # [B]
+
+            # ---- EATTA noise-sensitivity scores for ALL samples ----
+            noise = torch.randn_like(features) * self.noise_std
+            out_noise = self.classifier(features + noise)
+            # prob of the original pseudo-label after perturbation
+            py2 = F.softmax(out_noise, dim=-1).gather(1, y_prime.view(-1, 1)).squeeze(1)
+            eatta_diff_vec = torch.abs(py - py2)  # [B]
+
+        # --- Max-Entropy criterion (largest entropy first) ---
+        sorted_ent = torch.argsort(entropys.detach(), descending=True)
+        idx_ent, self.cls_cnt_entropy, self.cls_diff_entropy = self.sel_entropy(
+            y_prime, sorted_ent, entropys.detach(), self.cls_cnt_entropy, self.cls_diff_entropy
+        )
+
+        # --- EATTA criterion (largest noise diff first) ---
+        sorted_eatta = torch.argsort(eatta_diff_vec, descending=True)
+        idx_eatta, self.cls_cnt_eatta, self.cls_diff_eatta = self.sel_eatta(
+            y_prime, sorted_eatta, eatta_diff_vec, self.cls_cnt_eatta, self.cls_diff_eatta
+        )
+
+        # --- PDS criterion (largest drift first) ---
+        sorted_pds = torch.argsort(pds_drift_vec, descending=True)
+        idx_pds, self.cls_cnt_pds, self.cls_diff_pds = self.sel_pds(
+            y_prime, sorted_pds, pds_drift_vec, self.cls_cnt_pds, self.cls_diff_pds
+        )
+
+        # Log ONLY the first selected index (works for oracle_num=1 too)
+        if self.stats_logger is not None:
+            def _log(criterion: str, idx_tensor: torch.Tensor):
+                j = int(idx_tensor[0].item())
+                self.stats_logger.log(
+                    step=int(self.count),
+                    batch_id=int(self.batch_id),
+                    run_strategy=self.query_strategy,
+                    criterion=criterion,
+                    used_for_update=int(criterion == self.query_strategy),
+                    sel_idx=j,
+                    entropy_sel=float(entropys[j].detach().item()),
+                    drift_sel=float(pds_drift_vec[j].detach().item()),
+                )
+            _log("max_entropy", idx_ent)
+            _log("eatta_noise", idx_eatta)
+            _log("pds_drift", idx_pds)
+
+            if self.query_strategy == "max_entropy":
+                sorted_idx = idx_ent
+            elif self.query_strategy == "eatta_noise":
+                sorted_idx = idx_eatta
+            elif self.query_strategy == "pds_drift":
+                sorted_idx = idx_pds
+            else:
+                raise ValueError(f"Unknown QUERY_STRATEGY={self.query_strategy}")
+
+
+
         ids1 = torch.where(entropys < self.e_margin)[0]
-
+       
+        py, y_prime = F.softmax(outputs, dim=-1).max(1)
 
         # effortless active labeling
         if self.count == 0:
-            noise = torch.randn(features[offset:].size()).to(self.device) * self.noise_std # std=0.01
-            fea = features[offset:].clone().detach() + noise
+            noise = torch.randn(features.size()).to(self.device) * self.noise_std # std=0.01
+            fea = features.clone().detach() + noise
             out = self.classifier(fea)
             py2 = F.softmax(out, dim=-1)[:, y_prime]
             py2 = torch.diag(py2)
             diff = torch.abs(py - py2) # Eq.(3)
             sorted_indices = torch.argsort(diff, descending=True)
             sorted_idx, self.cls_num_count, self.cls_diff =  self.select_(y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff)
-            self.sorted_idx = sorted_idx
-        # ---------------- forgetting-aware active labeling ----------------
-        # use prediction drift between student and EMA anchor as sample score
-        else:
-            with torch.no_grad():
-                anchor_features = self.anchor_featurizer(imgs_test)
-                anchor_outputs = self.anchor_classifier(anchor_features[offset:])  # same 200-dim head
-                p_anchor = F.softmax(anchor_outputs, dim=-1)
 
-            p_student = F.softmax(outputs[offset:], dim=-1)
-            # L2 distance in probability space per sample
-            diff = torch.norm(p_student - p_anchor, p=2, dim=1)  # [B]
+        # # ---------------- forgetting-aware active labeling ----------------
+        # # use prediction drift between student and EMA anchor as sample score
+        # else:
+        #     with torch.no_grad():
+        #         anchor_features = self.anchor_featurizer(imgs_test)
+        #         anchor_outputs = self.anchor_classifier(anchor_features)  # same 200-dim head
+        #         p_anchor = F.softmax(anchor_outputs, dim=-1)
 
-            # sort by drift (largest first)
-            sorted_indices = torch.argsort(diff, descending=True)
-            sorted_idx, self.cls_num_count, self.cls_diff = self.select_(
-                y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff
-            )
-            self.sorted_idx = sorted_idx
+        #     p_student = F.softmax(outputs, dim=-1)
+        #     # L2 distance in probability space per sample
+        #     diff = torch.norm(p_student - p_anchor, p=2, dim=1)  # [B]
 
-
+        #     # sort by drift (largest first)
+        #     sorted_indices = torch.argsort(diff, descending=True)
+        #     sorted_idx, self.cls_num_count, self.cls_diff = self.select_(
+        #         y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff
+        #     )
         # ------------------------------------------------------------------
-        self.label_queue.append((
-            imgs_test[sorted_idx[0]].detach().cpu(),
-            y[sorted_idx[0]].detach().cpu()
-        ))
-
+        
         for i in sorted_idx:
             for j in ids1:
                 if i==j:
@@ -145,30 +206,10 @@ class EATTA(TTAMethod):
         loss_ent = entropys[ids1]
         loss_ent = loss_ent.mean(0) 
                     
-        sup_idx_global = None  # index into `outputs` (the forward output)
-        sup_y = None
-        sup_img = None
-
-        if delayed is not None:
-            # delayed sample is at position 0 in outputs
-            sup_idx_global = 0
-            sup_y = d_y_cpu.to(self.device)  # scalar
-            sup_img = imgs_test[0:1]          # [1,C,H,W]
-        elif self.label_delay == 0:
-            # immediate supervision on the selected top-1 from current batch
-            sup_idx_global = offset + sorted_idx[0]
-            sup_y = y[sorted_idx[0]]
-            sup_img = imgs_test[sorted_idx[0]:sorted_idx[0]+1]
-
-
+        
         
         if self.annotator == 'HUMAN':
-            # loss_ce = F.cross_entropy(outputs[sorted_idx], y[sorted_idx])
-            if sup_idx_global == None:
-                loss_ce = 0
-            else:
-                loss_ce = F.cross_entropy(outputs[sup_idx_global:sup_idx_global+1], sup_y.view(1))
-
+            loss_ce = F.cross_entropy(outputs[sorted_idx], y[sorted_idx])
             
         elif self.annotator == 'LARGE_MODEL':
             with torch.no_grad():
@@ -197,26 +238,26 @@ class EATTA(TTAMethod):
         
         # # gradient norm-based debiasing
         # Calculate gradients of loss1
-        # grad1 = torch.autograd.grad(loss_ent, list(param for param in self.model[1].parameters() if param.requires_grad), retain_graph=True)
-        # grad1_norm = torch.norm(torch.stack([g.norm() for g in grad1]))
-        # # Calculate gradients of loss2
-        # grad2 = torch.autograd.grad(loss_ce, list(param for param in self.model[1].parameters() if param.requires_grad), retain_graph=True)
-        # grad2_norm = torch.norm(torch.stack([g.norm() for g in grad2]))
+        grad1 = torch.autograd.grad(loss_ent, list(param for param in self.model[1].parameters() if param.requires_grad), retain_graph=True)
+        grad1_norm = torch.norm(torch.stack([g.norm() for g in grad1]))
+        # Calculate gradients of loss2
+        grad2 = torch.autograd.grad(loss_ce, list(param for param in self.model[1].parameters() if param.requires_grad), retain_graph=True)
+        grad2_norm = torch.norm(torch.stack([g.norm() for g in grad2]))
         
         
-        # # 动态调整权重
-        # w1 = 2 * grad2_norm / (grad2_norm + grad1_norm)
-        # w2 = 2 * grad1_norm / (grad1_norm + grad2_norm)
-        # w1 = w1.detach().item()
-        # w2 = w2.detach().item()
+        # 动态调整权重
+        w1 = 2 * grad2_norm / (grad2_norm + grad1_norm)
+        w2 = 2 * grad1_norm / (grad1_norm + grad2_norm)
+        w1 = w1.detach().item()
+        w2 = w2.detach().item()
         
-        # self.w1_ema, self.w2_ema = update_w1_w2(w1, w2, self.w1_ema, self.w2_ema, self.mo)
-        
-        
-        loss = 1.7 * loss_ent + 0.15 * loss_ce 
+        self.w1_ema, self.w2_ema = update_w1_w2(w1, w2, self.w1_ema, self.w2_ema, self.mo)
         
         
-        return outputs[offset:], loss
+        loss = self.w1_ema * loss_ent + self.w2_ema * loss_ce 
+        
+        
+        return outputs, loss
         
         
 
@@ -254,6 +295,7 @@ class EATTA(TTAMethod):
         # ----------------------------------------------------------------
         
         self.count += 1
+        self.batch_id += 1
         return outputs
 
     def collect_params(self):

@@ -1,4 +1,5 @@
 import os
+import json
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -353,6 +354,7 @@ class EATTA(TTAMethod):
         self.lr_step1 = getattr(cfg.OPTIM, "LR_STEP1", cfg.OPTIM.LR)
         self.lr_step2 = getattr(cfg.OPTIM, "LR_STEP2", cfg.OPTIM.LR)
         self.cache_output = None
+        self.label_ratio = getattr(cfg.MODEL, "LABEL_RATIO", 0.5)  # e.g. 0.1
         self.use_labels = False
         self.label_budget = 0.0
         self.count = 0
@@ -443,50 +445,78 @@ class PacedBatchSelector:
     def label_ratio(self):
         return self.total_labels / max(1, self.total_batches)
 
+class PacedBatchSelector:
+    def __init__(self, total_batches: int, total_labels: int,
+                 window: int = 200, min_hist: int = 30,
+                 slack: float = 1.0, device="cuda"):
+        self.total_batches = int(total_batches)
+        self.total_labels = int(total_labels)
+
+        self.device = device
+        self.window = int(window)
+        self.min_hist = int(min_hist)
+        self.hist = deque(maxlen=self.window)
+
+        self.used_labels = 0
+        self.seen_batches = 0
+        self.slack = float(slack)
+
+        # NEW: logging
+        self.decisions = []     # list of 0/1 per batch
+        self.utilities = []     # optional: utility per batch
+
+    @property
+    def label_ratio(self):
+        return self.total_labels / max(1, self.total_batches)
+
     def decide(self, utility_raw: float) -> bool:
-        """
-        Force spend if behind schedule; else select by utility threshold,
-        while still guaranteeing total budget used by end.
-        """
         with torch.no_grad():
             self.seen_batches += 1
             remaining_batches = self.total_batches - self.seen_batches + 1
             remaining_labels = self.total_labels - self.used_labels
 
-            # no budget left
             if remaining_labels <= 0:
                 self.hist.append(utility_raw)
-                return False
-
-            # hard guarantee: if labels >= batches left, label everything remaining
-            if remaining_labels >= remaining_batches:
+                do_label = False
+            elif remaining_labels >= remaining_batches:
                 self.used_labels += 1
                 self.hist.append(utility_raw)
-                return True
-
-            # pacing target
-            target_spent = self.label_ratio * self.seen_batches
-
-            # if behind schedule (by more than slack), force label now
-            if self.used_labels + self.slack < target_spent:
-                self.used_labels += 1
-                self.hist.append(utility_raw)
-                return True
-
-            # otherwise: "important batch" selection
-            p = remaining_labels / max(1, remaining_batches)  # desired rate from now on
-
-            if len(self.hist) < self.min_hist:
-                # mild exploration early to avoid back-loading
-                do_label = (torch.rand(1).item() < p)
+                do_label = True
             else:
-                vals = torch.tensor(list(self.hist), device=self.device, dtype=torch.float32)
-                q = torch.quantile(vals, 1.0 - float(p))
-                do_label = (utility_raw >= q.item())
+                target_spent = self.label_ratio * self.seen_batches
 
-            if do_label:
-                self.used_labels += 1
+                if self.used_labels + self.slack < target_spent:
+                    self.used_labels += 1
+                    self.hist.append(utility_raw)
+                    do_label = True
+                else:
+                    p = remaining_labels / max(1, remaining_batches)
 
-            self.hist.append(utility_raw)
+                    if len(self.hist) < self.min_hist:
+                        do_label = (torch.rand(1).item() < p)
+                    else:
+                        vals = torch.tensor(list(self.hist), device=self.device, dtype=torch.float32)
+                        q = torch.quantile(vals, 1.0 - float(p))
+                        do_label = (utility_raw >= q.item())
+
+                    if do_label:
+                        self.used_labels += 1
+
+                    self.hist.append(utility_raw)
+
+            # NEW: record
+            self.decisions.append(1 if do_label else 0)
+            self.utilities.append(float(utility_raw))
             return do_label
+
+    def save(self, path: str):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        payload = {
+            "total_batches": self.total_batches,
+            "total_labels": self.total_labels,
+            "decisions": self.decisions,    # 0/1 per batch
+            "utilities": self.utilities,    # optional
+        }
+        with open(path, "w") as f:
+            json.dump(payload, f, indent=2)
     

@@ -1,6 +1,6 @@
 import torch
 import logging
-import os
+import os, csv
 import random
 import numpy as np
 
@@ -48,3 +48,37 @@ def set_deterministic(seed: int = 42):
 
     # Enforce deterministic ops (warn_only=True if you prefer warnings)
     torch.use_deterministic_algorithms(True, warn_only=False)
+
+
+# utils/selection_stats.py
+
+def is_main_process():
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        return torch.distributed.get_rank() == 0
+    return True
+
+
+class SelectionStatsLogger:
+    def __init__(self, path: str):
+        self.path = path
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        if not os.path.exists(self.path):
+            with open(self.path, "w", newline="") as f:
+                w = csv.writer(f)
+                w.writerow([
+                    "step", "batch_id",
+                    "run_strategy",     # which strategy is used to adapt in THIS run
+                    "criterion",        # which strategy produced this logged selection
+                    "used_for_update",  # 1 if criterion == run_strategy else 0
+                    "sel_idx",
+                    "entropy_sel",
+                    "drift_sel",
+                ])
+
+    def log(self, *, step, batch_id, run_strategy, criterion, used_for_update,
+            sel_idx, entropy_sel, drift_sel):
+        with open(self.path, "a", newline="") as f:
+            w = csv.writer(f)
+            w.writerow([step, batch_id, run_strategy, criterion, used_for_update,
+                        sel_idx, entropy_sel, drift_sel])
+

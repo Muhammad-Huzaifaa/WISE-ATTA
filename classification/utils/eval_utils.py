@@ -86,5 +86,9 @@ def get_accuracy(model: torch.nn.Module,
             if dataset_name == "ccc" and num_samples >= 7500000:
                 break
 
+    # model.batch_selector.save("/mnt/SAS_A/huzaifa/research/RobustAdaptation/plots/ours_k_vit.json")
+    # model.save_label_usage("/mnt/SAS_A/huzaifa/research/RobustAdaptation/plots/random_r_vit.json")
+    # model.save_logs()
+
     accuracy = num_correct.item() / num_samples
     return accuracy, domain_dict, num_samples

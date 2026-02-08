@@ -353,7 +353,6 @@ class EATTA(TTAMethod):
         self.lr_step1 = getattr(cfg.OPTIM, "LR_STEP1", cfg.OPTIM.LR)
         self.lr_step2 = getattr(cfg.OPTIM, "LR_STEP2", cfg.OPTIM.LR)
         self.cache_output = None
-        self.label_ratio = getattr(cfg.MODEL, "LABEL_RATIO", 0.5)  # e.g. 0.1
         self.use_labels = False
         self.label_budget = 0.0
         self.count = 0
