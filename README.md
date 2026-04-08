@@ -78,7 +78,7 @@ _C.DATA_DIR = "/your/dataset/path"
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-repo/wise-atta.git
+   git clone https://github.com/Muhammad-Huzaifaa/WISE-ATTA.git
    cd wise-atta
    ```
 
@@ -95,6 +95,8 @@ _C.DATA_DIR = "/your/dataset/path"
 
 ### Example Run on ImageNet-C
 
+The following command runs WISE-ATTA on ImageNet-C using the default configuration:
+
 ```bash
 cd classification
 python test_time.py --cfg cfgs/imagenet_c/wiseatta.yaml MODEL.ADAPTATION wise
@@ -104,27 +106,19 @@ python test_time.py --cfg cfgs/imagenet_c/wiseatta.yaml MODEL.ADAPTATION wise
 
 Modify parameters in the config files (e.g., `cfgs/imagenet_c/wiseatta.yaml`):
 
-- `MODEL.ADAPTATION`: Choose the adaptation method
-- `MODEL.EDGE_ARCH`: Model to test for adaptation
+- `MODEL.ADAPTATION`: batch selection strategy (`wise`, `uniform`, or `random`)
+- `MODEL.EDGE_ARCH`: backbone used for adaptation
 - `MODEL.LABEL_RATIO`: Fraction of batches to label
-- Other hyperparameters as needed
 
----
-
-## Batch Selection Strategies
-
-You can replace `wise` in `MODEL.ADAPTATION` with:
-
-- `wise` — WISE-ATTA batch selection (utility-based)
-- `uniform` — Uniform batch selection
-- `random` — Random batch selection
 
 ---
 
 
 
 
-## Results on Natural Distribution Shifts (ResNet50)
+## Results 
+
+WISE-ATTA achieves competitive or better performance than prior ATTA methods while using fewer labels. In particular, with 1 label per batch, WISE-ATTA achieves the best average error across ImageNet-R/K/A, and remains competitive even at 0.5 labels per batch.
 
 | #Labels | Method | ImageNet-R | ImageNet-K | ImageNet-A | Avg. Error |
 |---|---|---:|---:|---:|---:|
@@ -168,5 +162,9 @@ muhammad.huzaifa [at] cispa.de
 If you find this work useful, please cite:
 
 ```bibtex
-
-```
+@article{wiseatta2026,
+  title={WISE-ATTA: When to Ask for Labels in Budgeted Active Test-Time Adaptation},
+  author={...},
+  journal={...},
+  year={2025}
+}
