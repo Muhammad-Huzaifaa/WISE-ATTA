@@ -6,7 +6,7 @@ from torchvision import transforms
 
 from copy import deepcopy
 from functools import wraps
-from models.model import ResNetDomainNet126
+# from models.model import ResNetDomainNet126
 
 
 logger = logging.getLogger(__name__)

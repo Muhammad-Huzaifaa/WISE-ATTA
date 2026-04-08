@@ -27,9 +27,6 @@ cfg = _C
 _C.SETTING = "reset_each_shift" # "reset_each_shift", continual
 
 # Data directory
-# _C.DATA_DIR = "/mnt/lustre/work/kuehne/kqr916/high-res/RTTDP/classification/data/"
-# _C.DATA_DIR = "/mnt/lustre/work/kuehne/kqr916/high-res/EATTA/dataset/"
-# _C.DATA_DIR = "/mnt/lustre/work/kuehne/kqr916/high-res/EATTA/dataset/PACS"
 _C.DATA_DIR = "/mnt/SAS_A/huzaifa/research/wise-atta/RobustAdaptation/dataset"
 
 # Weight directory
@@ -69,11 +66,7 @@ _C.DESC = ""
 # ----------------------------- Model options ------------------------------- #
 _C.MODEL = CfgNode()
 
-# Some of the available models can be found here:
-# Torchvision: https://pytorch.org/vision/0.14/models.html
-# timm: https://github.com/huggingface/pytorch-image-models/tree/v0.6.13
-# RobustBench: https://github.com/RobustBench/robustbench
-# OpenCLIP: https://github.com/mlfoundations/open_clip
+
 _C.MODEL.ARCH = 'Standard'
 
 
@@ -114,12 +107,7 @@ _C.CORRUPTION = CfgNode()
 # Dataset for evaluation
 _C.CORRUPTION.DATASET = 'cifar10_c'
 
-# Check https://github.com/hendrycks/robustness for corruption details
-# _C.CORRUPTION.TYPE = ['gaussian_noise', 'shot_noise', 'impulse_noise',
-#                       'defocus_blur', 'glass_blur', 'motion_blur', 'zoom_blur',
-#                       'snow', 'frost', 'fog', 'brightness', 'contrast',
-#                       'elastic_transform', 'pixelate', 'jpeg_compression']
-# _C.CORRUPTION.SEVERITY = [5, 4, 3, 2, 1]
+
 _C.CORRUPTION.TYPE = []
 _C.CORRUPTION.SEVERITY = []
 
@@ -162,36 +150,8 @@ _C.OPTIM.NESTEROV = True
 # L2 regularization
 _C.OPTIM.WD = 0.0
 
-# --------------------------------- Mean teacher options -------------------- #
-_C.M_TEACHER = CfgNode()
-
-# Mean teacher momentum for EMA update
-_C.M_TEACHER.MOMENTUM = 0.999
-
-# --------------------------------- Contrastive options --------------------- #
-_C.CONTRAST = CfgNode()
-
-# Temperature term for contrastive learning
-_C.CONTRAST.TEMPERATURE = 0.1
-
-# Output dimension of projector
-_C.CONTRAST.PROJECTION_DIM = 128
-
-# Contrastive mode
-_C.CONTRAST.MODE = 'all'
 
 
-
-
-# --------------------------------- EATA options ---------------------------- #
-_C.EATA = CfgNode()
-
-# Fisher alpha. If set to 0.0, EATA becomes ETA and no EWC regularization is used
-_C.EATA.FISHER_ALPHA = 2000.0
-
-# Diversity margin
-_C.EATA.D_MARGIN = 0.05
-_C.EATA.MARGIN_E0 = 0.4             # Will be multiplied by: EATA.MARGIN_E0 * math.log(num_classes)
 
 
 
@@ -229,11 +189,6 @@ _C.TEST.DELTA_DIRICHLET = 0.0
 # Debuging mode
 _C.TEST.DEBUG = False
 
-# --------------------------------- CUDNN options --------------------------- #
-_C.CUDNN = CfgNode()
-
-# Benchmark to select fastest CUDNN algorithms (best for fixed input sizes)
-_C.CUDNN.BENCHMARK = True
 
 # --------------------------------- Default config -------------------------- #
 _CFG_DEFAULT = _C.clone()
@@ -322,8 +277,7 @@ def load_cfg_from_args(description="Config options."):
     logger = logging.getLogger(__name__)
     version = [torch.__version__, torch.version.cuda,
                torch.backends.cudnn.version()]
-    # logger.info("PyTorch Version: torch={}, cuda={}, cudnn={}".format(*version))
-    # logger.info(cfg)
+
 
 
 def complete_data_dir_path(data_root_dir: str, dataset_name: str):

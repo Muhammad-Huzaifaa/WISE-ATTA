@@ -1,73 +1,121 @@
-# 🍦EATTA🍦
-This is the official project repository for **Effortless Active Labeling for Long-Term Test-Time Adaptation** by Guowei Wang and Changxing Ding* (**CVPR 2025**).
+# WISE-ATTA
 
-🍦EATTA🍦 relieves the increasing annotation burden in ATTA as online data scale grows by requiring only one labeled sample per batch, or even per multi-batches.
+Official PyTorch implementation of  
+**WISE-ATTA: When to Ask for Labels in Budgeted Active Test-Time Adaptation**
 
-- 🍦EATTA🍦 identifies the most valuable sample in each batch for labeling from the perspective of single-step optimization.
-- 🍦EATTA🍦 introduces a gradient norm-based debiasing method to balance the training objectives of the labeled and unlabeled data.
+> Budget-aware active test-time adaptation for long test streams with limited supervision.
 
-![Frameworks](frameworks.png)
+![Framework](frameworks.png)
+
 ---
-# Environments
-Driver Version: 550.67 | CUDA Version: 12.4 | Python Version：3.10.12
 
-To use the repository, we provide a conda environment.
-```
+## Overview
+
+**WISE-ATTA** studies a practical setting of **budgeted active test-time adaptation (ATTA)**, where labels are available for only a small fraction of test batches rather than every batch. The key question is not only **what to label**, but also **when to spend the labeling budget** over time. :contentReference[oaicite:0]{index=0}
+
+To address this, WISE-ATTA introduces two complementary components:  
+- **Budget-paced batch selection**, which decides **when** to request supervision using lightweight online utility signals.  
+- **Drift-based sample selection**, which decides **what** to label by selecting a single informative sample based on prediction drift relative to an EMA anchor model. :contentReference[oaicite:1]{index=1} :contentReference[oaicite:2]{index=2}
+
+Across **ImageNet-C** and natural distribution shift benchmarks (**ImageNet-R**, **ImageNet-K**, and **ImageNet-A**), WISE-ATTA achieves competitive or improved robustness while using substantially fewer labels. :contentReference[oaicite:3]{index=3} :contentReference[oaicite:4]{index=4}
+
+---
+
+## Highlights
+
+- **Budgeted ATTA** for long test streams
+- **Selective supervision over time** instead of labeling every batch
+- **Single-sample querying** for selected batches
+- No replay buffer required
+- Evaluated on **ImageNet-C/R/K/A** :contentReference[oaicite:5]{index=5}
+
+---
+
+## Environment
+
+Tested with:
+
+- **Driver Version:** 550.67  
+- **CUDA Version:** 12.4  
+- **Python Version:** 3.10.12  
+
+We provide a conda environment:
+
+```bash
 conda update conda
 conda env create -f environment.yml
-conda activate tta 
-```
-# Datasets
-- [ImageNet-C](https://zenodo.org/records/2235448#.Yj2RO_co_mF)
-- [ImageNet-R](https://github.com/hendrycks/imagenet-r)
-- [ImageNet-K](https://github.com/HaohanWang/ImageNet-Sketch)
-- [ImageNet-A](https://github.com/hendrycks/natural-adv-examples)
-  
-After downloading these datasets, you may need to change the path to the root directory in the file conf.py. For example,
-```
-# change path
-_C.DATA_DIR = "/guowei/data" --> _C.DATA_DIR = "/usr/data"
-```
-# Baselines
-- Baseline. We create an ATTA baseline based on [TENT](https://github.com/DequanWang/tent) (ICLR 2021). It andomly selects a specified number of samples from each online batch for manual/large model annotation, and perform adaptation using Eq.2.
-- [SimATTA](https://github.com/divelab/ATTA) (ICLR 2024).
-- [CEMA](https://github.com/chenyaofo/CEMA) (ICLR 2024).
-- [HILTTA](https://github.com/Yushu-Li/HILTTA) (TMLR)
-# Example
-```
+conda activate wise-atta
+
+
+## Datasets
+
+We evaluate on the following benchmarks:
+
+- **ImageNet-C**
+- **ImageNet-R**
+- **ImageNet-K / ImageNet-Sketch**
+- **ImageNet-A**
+
+After downloading the datasets, update the dataset root in `conf.py`:
+
+```python
+_C.DATA_DIR = "/your/dataset/path"
+
+
+Method
+
+WISE-ATTA operates in two stages:
+
+1. Batch Selection
+
+For each incoming test batch, WISE-ATTA estimates whether supervision is likely to be useful and decides whether to spend part of the label budget on that batch.
+
+2. Sample Selection
+
+If a batch is selected, WISE-ATTA queries the label of one sample whose prediction shows large drift relative to an EMA anchor model, indicating ongoing but unconverged adaptation.
+
+This design makes label usage more efficient under constrained annotation budgets.
+
+
+Run on ImageNet-C
 cd classification
-CUDA_VISIBLE_DEVICES=0 python test_time.py --cfg cfgs/imagenet_c/eatta.yaml
-```
-Considering modifying the following parameters in './cfgs/imagenet_c/eatta.yaml' to test ATTA methods with different parameters. For example,
-```
+python test_time.py --cfg cfgs/imagenet_c/wiseatta.yaml MODEL.ADAPTATION wise
+Batch Selection Strategies
+
+You can replace wise in MODEL.ADAPTATION with:
+
+wise — WISE-ATTA batch selection
+uniform — uniform batch selection
+random — random batch selection
+
+Example:
+
+python test_time.py --cfg cfgs/imagenet_c/wiseatta.yaml MODEL.ADAPTATION uniform
+Configuration
+
+You may want to modify the following options in ./cfgs/imagenet_c/wiseatta.yaml:
+
 MODEL:
-  ADAPTATION: eatta
-  EDGE_CLOUD: True # No need to change
-  CLOUD_ARCH: 'vit_l_16' # Architecture of the large model (annotator). Only works when 'LARGE_MODELS' is called.
-  EDGE_ARCH: 'resnet50' # Architecture of the adapted model.
-  EDGE_ARCH_WEIGHTS: 'IMAGENET1K_V1' # No need to change
-  HUMAN_OR_LARGE_MODEL: 'HUMAN' # Switch the annotator: 'HUMAN'-->'LARGE_MODELS'.
-  ORACLE_NUM: 1  # Change the number of samples for annotation in each batch: 1-->3.
-  BUFFER: False # Not use or use the buffer: False-->True.
-```
+  ADAPTATION: wiseatta
+  EDGE_CLOUD: True
+  CLOUD_ARCH: 'vit_l_16'          # Annotator / large model architecture if used
+  EDGE_ARCH: 'resnet50'           # Adapted model architecture
+  EDGE_ARCH_WEIGHTS: 'IMAGENET1K_V1'
+  HUMAN_OR_LARGE_MODEL: 'HUMAN'   # 'HUMAN' or 'LARGE_MODELS'
+  ORACLE_NUM: 1                   # Number of queried labels for a selected batch
+  BUFFER: False
+Acknowledgements
 
+This repository is built upon the excellent codebases:
 
----
-# Correspondence
-Please contact Guowei Wang by eegw.wang [at] mail.scut.edu.cn
+EATTA
+test-time-adaptation
 
-# Citation
-If you find 🍦EATTA🍦 is helpful in your research, please considering citing our paper:
-```
-@inproceedings{wang2025effortless,
-  title={Effortless active labeling for long-term test-time adaptation},
-  author={Wang, Guowei and Ding, Changxing},
-  booktitle={Proceedings of the Computer Vision and Pattern Recognition Conference},
-  pages={25633--25642},
-  year={2025}
-}
-```
+We also thank the authors of prior TTA and ATTA methods that inspired this work, including TENT, SimATTA, CEMA, HILTTA, and EATTA.
 
+Contact
 
-# Acknowledgements
-We appreciate the contribution of a brilliant codebase [https://github.com/mariodoebler/test-time-adaptation](https://github.com/mariodoebler/test-time-adaptation), which is developed by Robert A. Marsden and Mario Döbler. 
+For questions or collaborations, please contact:
+
+Muhammad Huzaifa
+muhammad.huzaifa [at] cispa.de

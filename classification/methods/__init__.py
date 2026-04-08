@@ -1,7 +1,5 @@
-from methods.source import Source
-from methods.baseline import Baseline
-from methods.eatta import EATTA
+"""Methods package imports all available TTA adaptation modules."""
 
-__all__ = [
-    'Source', 'Baseline', 'EATTA'
-]
+from . import random
+from . import uniform
+from . import wise_atta

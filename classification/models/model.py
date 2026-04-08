@@ -13,7 +13,6 @@ from robustbench.model_zoo.architectures.utils_architectures import normalize_mo
 from robustbench.model_zoo.enums import ThreatModel
 from robustbench.utils import load_model
 from .masks_imagenet import IMAGENET_A_MASK, IMAGENET_R_MASK
-from test_atta import ResNet, Classifier, build_model
 
 from typing import Union
 from copy import deepcopy
