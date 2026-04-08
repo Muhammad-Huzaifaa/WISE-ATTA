@@ -27,7 +27,7 @@ MODEL:
   EDGE_CLOUD: True
   CLOUD_ARCH: 'vit_b_16'
   # vit_b_16 'vit_l_16' 'vit_h_14'
-  EDGE_ARCH: 'resnet50'
+  EDGE_ARCH: 'vit_b_16'
   EDGE_ARCH_WEIGHTS: 'IMAGENET1K_V1'
   HUMAN_OR_LARGE_MODEL: 'HUMAN'
   ORACLE_NUM: 1

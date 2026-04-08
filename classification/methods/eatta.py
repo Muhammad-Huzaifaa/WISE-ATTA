@@ -93,7 +93,7 @@ class EATTA(TTAMethod):
                 self.cache_output = outputs
                 # effortless active labeling
                 # ----------------
-                if self.batch_count <= 4:
+                if self.batch_count <= 100000:
                     noise = torch.randn(features.size()).to(self.device) * self.noise_std 
                     fea = features.clone().detach() + noise
                     out = self.classifier(fea)
@@ -101,13 +101,13 @@ class EATTA(TTAMethod):
                     py2 = torch.diag(py2)
                     diff = torch.abs(py - py2) # Eq.(3)
                 # forgetting-aware active labeling 
-                else:
-                    with torch.no_grad():
-                        anchor_features = self.anchor_featurizer(imgs_test)
-                        anchor_outputs = self.anchor_classifier(anchor_features)  # same 200-dim head
-                        p_anchor = F.softmax(anchor_outputs, dim=-1)
-                    p_student = F.softmax(outputs, dim=-1)
-                    diff = torch.norm(p_student - p_anchor, p=2, dim=1)  # [B]
+                # else:
+                #     with torch.no_grad():
+                #         anchor_features = self.anchor_featurizer(imgs_test)
+                #         anchor_outputs = self.anchor_classifier(anchor_features)  # same 200-dim head
+                #         p_anchor = F.softmax(anchor_outputs, dim=-1)
+                #     p_student = F.softmax(outputs, dim=-1)
+                #     diff = torch.norm(p_student - p_anchor, p=2, dim=1)  # [B]
                 # ------------------------------------------------------------------
                 sorted_indices = torch.argsort(diff, descending=True)
                 self.sorted_idx, self.cls_num_count, self.cls_diff = self.select_(y_prime, sorted_indices, diff, self.cls_num_count, self.cls_diff)

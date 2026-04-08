@@ -1,5 +1,6 @@
 SEED: 0
 TOTAL_TEST_BATCHES: 796
+# TOTAL_TEST_BATCHES: 6368
 CORRUPTION:
   DATASET: imagenet_k
   TYPE: ["clean"]     # <- sentinel

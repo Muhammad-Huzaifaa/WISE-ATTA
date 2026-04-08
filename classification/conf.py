@@ -30,7 +30,7 @@ _C.SETTING = "reset_each_shift" # "reset_each_shift", continual
 # _C.DATA_DIR = "/mnt/lustre/work/kuehne/kqr916/high-res/RTTDP/classification/data/"
 # _C.DATA_DIR = "/mnt/lustre/work/kuehne/kqr916/high-res/EATTA/dataset/"
 # _C.DATA_DIR = "/mnt/lustre/work/kuehne/kqr916/high-res/EATTA/dataset/PACS"
-_C.DATA_DIR = "/mnt/SAS_A/huzaifa/research/RobustAdaptation/dataset"
+_C.DATA_DIR = "/mnt/SAS_A/huzaifa/research/wise-atta/RobustAdaptation/dataset"
 
 # Weight directory
 _C.CKPT_DIR = "./ckpt"

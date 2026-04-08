@@ -1,4 +1,4 @@
-name: tta
+name: wise-atta
 channels:
   - pytorch
   - nvidia
