@@ -6,7 +6,7 @@ Official PyTorch implementation of
 > Budget-aware active test-time adaptation for long test streams with limited supervision.
 
 <p align="center">
-  <img src="frameworks.png" alt="Framework" width="700"/>
+  <img src="frameworks.png" alt="Framework" width="500"/>
 </p>
 
 ---
@@ -35,7 +35,7 @@ To address this, WISE-ATTA introduces two complementary components:
 Across **ImageNet-C** and natural distribution shift benchmarks (**ImageNet-R**, **ImageNet-K**, and **ImageNet-A**), WISE-ATTA achieves competitive or improved robustness while using substantially fewer labels.
 
 <p align="center">
-  <img src="label_ratio.png" alt="Framework" width="700"/>
+  <img src="label_ratio.png" alt="Framework" width="600"/>
 </p>
 
 ## Environment
@@ -80,10 +80,6 @@ wise — WISE-ATTA batch selection
 uniform — uniform batch selection
 random — random batch selection
 
-
-Configuration
-
-You may want to modify the following options in ./cfgs/imagenet_c/wiseatta.yaml:
 
 
 Acknowledgements
