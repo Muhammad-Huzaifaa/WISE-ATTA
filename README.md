@@ -51,7 +51,7 @@ To address this, WISE-ATTA introduces two complementary components:
 
 Tested with:
 
-- **Driver Version:** 550.67
+- **Driver Version:** 550.163.01
 - **CUDA Version:** 12.4
 - **Python Version:** 3.10.12
 
