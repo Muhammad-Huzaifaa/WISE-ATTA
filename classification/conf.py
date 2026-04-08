@@ -66,7 +66,7 @@ _C.DESC = ""
 # ----------------------------- Model options ------------------------------- #
 _C.MODEL = CfgNode()
 
-
+# Some of the available models can be found here:
 _C.MODEL.ARCH = 'Standard'
 
 
@@ -100,6 +100,8 @@ _C.MODEL.EPISODIC = False
 # Reset the model after a certain amount of update steps (e.g., used in RDumb)
 _C.MODEL.RESET_AFTER_NUM_UPDATES = 0
 # _C.MODEL.ANCHOR_MOMENTUM = 0.90
+
+_C.MODEL.LABEL_RATIO = 0.5
 
 # ----------------------------- Corruption options -------------------------- #
 _C.CORRUPTION = CfgNode()
@@ -153,6 +155,16 @@ _C.OPTIM.WD = 0.0
 
 
 
+# --------------------------------- EATA options ---------------------------- #
+_C.EATA = CfgNode()
+
+# Fisher alpha. If set to 0.0, EATA becomes ETA and no EWC regularization is used
+_C.EATA.FISHER_ALPHA = 2000.0
+
+# Diversity margin
+_C.EATA.D_MARGIN = 0.05
+_C.EATA.MARGIN_E0 = 0.4             # Will be multiplied by: EATA.MARGIN_E0 * math.log(num_classes)
+
 
 
 
@@ -189,6 +201,11 @@ _C.TEST.DELTA_DIRICHLET = 0.0
 # Debuging mode
 _C.TEST.DEBUG = False
 
+# --------------------------------- CUDNN options --------------------------- #
+_C.CUDNN = CfgNode()
+
+# Benchmark to select fastest CUDNN algorithms (best for fixed input sizes)
+_C.CUDNN.BENCHMARK = True
 
 # --------------------------------- Default config -------------------------- #
 _CFG_DEFAULT = _C.clone()
@@ -277,7 +294,8 @@ def load_cfg_from_args(description="Config options."):
     logger = logging.getLogger(__name__)
     version = [torch.__version__, torch.version.cuda,
                torch.backends.cudnn.version()]
-
+    # logger.info("PyTorch Version: torch={}, cuda={}, cudnn={}".format(*version))
+    # logger.info(cfg)
 
 
 def complete_data_dir_path(data_root_dir: str, dataset_name: str):

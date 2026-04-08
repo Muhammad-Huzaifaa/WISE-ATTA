@@ -5,7 +5,6 @@ import torch.nn.functional as F
 # import logging
 import math
 import copy
-import random
 from methods.base import TTAMethod
 from utils.registry import ADAPTATION_REGISTRY
 from utils.losses import Entropy

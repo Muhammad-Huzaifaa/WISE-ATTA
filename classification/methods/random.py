@@ -2,7 +2,6 @@ import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-# import logging
 import math
 import copy
 import random
@@ -11,7 +10,6 @@ from utils.registry import ADAPTATION_REGISTRY
 from utils.losses import Entropy
 from models.model import split_up_model
 from utils.misc import set_deterministic
-from torch.utils.data import Dataset, DataLoader
 
 
 @ADAPTATION_REGISTRY.register()

@@ -6,10 +6,10 @@ import methods
 
 from models.model import get_model
 from utils.misc import print_memory_info
-from utils.eval_utils import get_accuracy, eval_domain_dict
+from utils.eval_utils import get_accuracy
 from utils.registry import ADAPTATION_REGISTRY
 from datasets.data_loading import get_test_loader
-from conf import cfg, load_cfg_from_args, get_num_classes, ckpt_path_to_domain_seq
+from conf import cfg, load_cfg_from_args, get_num_classes
 
 logger = logging.getLogger(__name__)
 

@@ -5,13 +5,11 @@ import torch.nn.functional as F
 # import logging
 import math
 import copy
-import random
 from methods.base import TTAMethod
 from utils.registry import ADAPTATION_REGISTRY
 from utils.losses import Entropy
 from models.model import split_up_model
 from utils.misc import set_deterministic
-from torch.utils.data import Dataset, DataLoader
 from collections import deque
 
 
@@ -52,16 +50,8 @@ class WISE(TTAMethod):
                 feats_s = self.featurizer(x[0])
                 out_s = self.classifier(feats_s)
                 ent = self.softmax_entropy(out_s)  # [B]
-                # py, y_prime = F.softmax(out_s, dim=-1).max(1)
-                # p_s = F.softmax(out_s, dim=-1)
-                # feats_a = self.anchor_featurizer(x[0])
-                # out_a = self.anchor_classifier(feats_a)
-                # p_a = F.softmax(out_a, dim=-1)
-                # div = torch.norm(p_s - p_a, p=2, dim=1)  # [B]
-                # u_div = (div.topk(k=1, largest=True).values).mean().item()
-                # count entropy idx that is less than margin
                 ids = torch.where(ent < self.e_margin)[0]
-                utility = len(ids) #+ u_div
+                utility = len(ids) 
 
             self.use_labels = self.batch_selector.decide(utility)
             if self.use_labels:
@@ -205,10 +195,6 @@ class WISE(TTAMethod):
                     p_student.data * (1.0 - self.anchor_momentum)
                 )
         # ----------------------------------------------------------------
-        # print total number of labeled samples used
-        # if self.batch_count % 100 == 0 or self.batch_count == 468:
-        #     print(f"Total labeled samples used so far: {self.count}")
-        #     print(f"Current batch count: {self.batch_count:.2f}")
         return outputs
 
     def collect_params(self):
@@ -287,8 +273,7 @@ class WISE(TTAMethod):
 
     def configure_model(self):
       
-        # self.edge_model = self.model[1]
-        # self.cloud_model = self.model[0]
+
         """Configure model for use with tent."""
         # train mode, because tent optimizes the model to minimize entropy
         self.model[1].eval()  # eval mode to avoid stochastic depth in swin. test-time normalization is still applied
