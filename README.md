@@ -105,7 +105,7 @@ python test_time.py --cfg cfgs/imagenet_c/wiseatta.yaml MODEL.ADAPTATION wise
 Modify parameters in the config files (e.g., `cfgs/imagenet_c/wiseatta.yaml`):
 
 - `MODEL.ADAPTATION`: Choose the adaptation method
-- `MODEL.ORACLE_NUM`: Number of samples to label per batch
+- `MODEL.EDGE_ARCH`: Model to test for adaptation
 - `MODEL.LABEL_RATIO`: Fraction of batches to label
 - Other hyperparameters as needed
 
@@ -121,12 +121,10 @@ You can replace `wise` in `MODEL.ADAPTATION` with:
 
 ---
 
-## Results
-
-Across **ImageNet-C** and natural distribution shift benchmarks (**ImageNet-R**, **ImageNet-K**, and **ImageNet-A**), WISE-ATTA achieves competitive or improved robustness while using substantially fewer labels.
 
 
-## Results on Natural Distribution Shifts
+
+## Results on Natural Distribution Shifts (ResNet50)
 
 | #Labels | Method | ImageNet-R | ImageNet-K | ImageNet-A | Avg. Error |
 |---|---|---:|---:|---:|---:|
@@ -141,9 +139,7 @@ Across **ImageNet-C** and natural distribution shift benchmarks (**ImageNet-R**,
 | 1 | **WISE-ATTA** | **51.2** | **63.8** | **97.7** | **70.9** |
 | 0.5 | **WISE-ATTA** | 52.2 | 64.6 | 98.3 | 71.7 |
 
-<p align="center">
-  <img src="label_ratio.png" alt="Label Ratio Comparison" width="600"/>
-</p>
+
 
 ---
 
