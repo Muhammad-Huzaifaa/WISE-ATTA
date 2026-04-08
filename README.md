@@ -45,12 +45,6 @@ To address this, WISE-ATTA introduces two complementary components:
 - No replay buffer required
 - Evaluated on **ImageNet-C/R/K/A**
 
-Across **ImageNet-C** and natural distribution shift benchmarks (**ImageNet-R**, **ImageNet-K**, and **ImageNet-A**), WISE-ATTA achieves competitive or improved robustness while using substantially fewer labels.
-
-<p align="center">
-  <img src="label_ratio.png" alt="Label Ratio Comparison" width="600"/>
-</p>
-
 ---
 
 ## Environment
@@ -129,7 +123,28 @@ You can replace `wise` in `MODEL.ADAPTATION` with:
 
 ## Results
 
-[Add results section here, e.g., tables or figures showing performance on different datasets and label ratios.]
+Across **ImageNet-C** and natural distribution shift benchmarks (**ImageNet-R**, **ImageNet-K**, and **ImageNet-A**), WISE-ATTA achieves competitive or improved robustness while using substantially fewer labels.
+
+
+## Results on Natural Distribution Shifts
+
+| #Labels | Method | R<br>RN50 | R<br>ViT | K<br>RN50 | K<br>ViT | A<br>RN50 | A<br>ViT | Avg<br>RN50 | Avg<br>ViT |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| - | TENT | 57.8 | 53.4 | 69.5 | 65.6 | 99.9 | 77.4 | 75.7 | 65.5 |
+| - | CoTTA | 57.3 | 55.4 | 69.9 | 98.2 | 99.8 | 79.3 | 75.7 | 77.6 |
+| - | SAR | 57.2 | 48.8 | 68.5 | 70.4 | 99.9 | 74.9 | 75.2 | 64.7 |
+| - | ETA | 54.0 | 48.8 | 64.3 | 59.4 | 99.8 | 75.9 | 72.7 | 61.4 |
+| - | CEMA† | 51.4 | 44.6 | 65.6 | 60.0 | 97.7 | 72.9 | 71.6 | 59.2 |
+| 3 | SimATTA | 51.3 | 45.1 | 64.0 | 57.2 | 97.2 | 72.4 | 70.8 | 58.2 |
+| 3 | HILTTA | 52.6 | 43.9 | 63.3 | 58.1 | 98.3 | 72.2 | 71.4 | 58.1 |
+| 1 | EATTA | 52.8 | 44.3 | 64.1 | 58.2 | 99.1 | 71.5 | 72.0 | 58.0 |
+| 1 | **WISE-ATTA** | **51.2** | **42.6** | **63.8** | **57.2** | **97.7** | **69.9** | **70.9** | **56.6** |
+| 0.5 | **WISE-ATTA** | 52.2 | 43.5 | 64.6 | 58.0 | 98.3 | 70.9 | 71.7 | 57.5 |
+
+
+<p align="center">
+  <img src="label_ratio.png" alt="Label Ratio Comparison" width="600"/>
+</p>
 
 ---
 
@@ -137,7 +152,7 @@ You can replace `wise` in `MODEL.ADAPTATION` with:
 
 This repository is built upon the excellent codebases:
 
-- [EATTA](https://github.com/mohammad-amin-gheisari/EATTA)
+- [EATTA](https://github.com/flash1803/EATTA/)
 - [test-time-adaptation](https://github.com/mariodoebler/test-time-adaptation)
 
 We also thank the authors of prior TTA and ATTA methods that inspired this work, including TENT, SimATTA, CEMA, HILTTA, and EATTA.
@@ -158,10 +173,5 @@ muhammad.huzaifa [at] cispa.de
 If you find this work useful, please cite:
 
 ```bibtex
-@inproceedings{your-paper,
-  title={WISE-ATTA: When to Ask for Labels in Budgeted Active Test-Time Adaptation},
-  author={Your Name et al.},
-  booktitle={Conference},
-  year={2024}
-}
+
 ```
