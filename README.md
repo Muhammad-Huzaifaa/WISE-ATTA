@@ -5,7 +5,9 @@ Official PyTorch implementation of
 
 > Budget-aware active test-time adaptation for long test streams with limited supervision.
 
-![Framework](frameworks.png)
+<p align="center">
+  <img src="frameworks.png" alt="Framework" width="700"/>
+</p>
 
 ---
 
@@ -17,7 +19,6 @@ To address this, WISE-ATTA introduces two complementary components:
 - **Budget-paced batch selection**, which decides **when** to request supervision using lightweight online utility signals.  
 - **Drift-based sample selection**, which decides **what** to label by selecting a single informative sample based on prediction drift relative to an EMA anchor model. 
 
-Across **ImageNet-C** and natural distribution shift benchmarks (**ImageNet-R**, **ImageNet-K**, and **ImageNet-A**), WISE-ATTA achieves competitive or improved robustness while using substantially fewer labels. 
 ---
 
 ## Highlights
@@ -29,6 +30,13 @@ Across **ImageNet-C** and natural distribution shift benchmarks (**ImageNet-R**,
 - Evaluated on **ImageNet-C/R/K/A** 
 
 ---
+
+
+Across **ImageNet-C** and natural distribution shift benchmarks (**ImageNet-R**, **ImageNet-K**, and **ImageNet-A**), WISE-ATTA achieves competitive or improved robustness while using substantially fewer labels.
+
+<p align="center">
+  <img src="label_ratio.png" alt="Framework" width="700"/>
+</p>
 
 ## Environment
 
