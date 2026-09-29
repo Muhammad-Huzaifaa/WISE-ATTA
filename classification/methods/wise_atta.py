@@ -414,7 +414,7 @@ class PacedBatchSelector:
                  slack: float = 1.0, device="cuda"):
         self.total_batches = int(total_batches)
         self.total_labels = int(total_labels)
-
+        self.correction_horizon = 40
         self.device = device
         self.window = int(window)
         self.min_hist = int(min_hist)
@@ -428,41 +428,35 @@ class PacedBatchSelector:
     def label_ratio(self):
         return self.total_labels / max(1, self.total_batches)
 
+
     def decide(self, utility_raw: float) -> bool:
         """
-        Force spend if behind schedule; else select by utility threshold,
-        while still guaranteeing total budget used by end.
+        Unknown-horizon variant:
+        pace queries using budget debt relative to the target annotation ratio.
         """
         with torch.no_grad():
             self.seen_batches += 1
-            remaining_batches = self.total_batches - self.seen_batches + 1
-            remaining_labels = self.total_labels - self.used_labels
 
-            # no budget left
+            remaining_labels = self.total_labels - self.used_labels
             if remaining_labels <= 0:
                 self.hist.append(utility_raw)
                 return False
 
-            # hard guarantee: if labels >= batches left, label everything remaining
-            if remaining_labels >= remaining_batches:
-                self.used_labels += 1
-                self.hist.append(utility_raw)
-                return True
-
-            # pacing target
             target_spent = self.label_ratio * self.seen_batches
 
-            # if behind schedule (by more than slack), force label now
+            # if behind schedule by more than slack, force label now
             if self.used_labels + self.slack < target_spent:
                 self.used_labels += 1
                 self.hist.append(utility_raw)
                 return True
 
-            # otherwise: "important batch" selection
-            p = remaining_labels / max(1, remaining_batches)  # desired rate from now on
+            # debt-based effective query rate (unknown horizon)
+            debt = target_spent - self.used_labels
+            p = self.label_ratio + debt / self.correction_horizon
+            p = max(0.0, min(1.0, p))
 
+            # utility-based selection
             if len(self.hist) < self.min_hist:
-                # mild exploration early to avoid back-loading
                 do_label = (torch.rand(1).item() < p)
             else:
                 vals = torch.tensor(list(self.hist), device=self.device, dtype=torch.float32)
@@ -474,4 +468,3 @@ class PacedBatchSelector:
 
             self.hist.append(utility_raw)
             return do_label
-    
