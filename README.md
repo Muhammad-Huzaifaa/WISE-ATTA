@@ -164,7 +164,7 @@ If you find this work useful, please cite:
 ```bibtex
 @article{huzaifa2026wiseatta,
   title   = {{WISE-ATTA}: When to Ask for Labels in Budgeted Active Test-Time Adaptation},
-  author  = {Huzaifa, Muhammad and Sch{\"o}nherr, Lea and Eisenhofer, Thorsten},
+  author  = {Huzaifa, Muhammad and Schönherr, Lea and Eisenhofer, Thorsten},
   journal = {arXiv preprint arXiv:2609.37687},
   year    = {2026}
 }
