@@ -162,9 +162,9 @@ muhammad.huzaifa [at] cispa.de
 If you find this work useful, please cite:
 
 ```bibtex
-@article{wiseatta2026,
-  title={WISE-ATTA: When to Ask for Labels in Budgeted Active Test-Time Adaptation},
-  author={...},
-  journal={...},
-  year={2025}
+@article{huzaifa2026wiseatta,
+  title   = {{WISE-ATTA}: When to Ask for Labels in Budgeted Active Test-Time Adaptation},
+  author  = {Huzaifa, Muhammad and Sch{\"o}nherr, Lea and Eisenhofer, Thorsten},
+  journal = {arXiv preprint arXiv:2609.37687},
+  year    = {2026}
 }
