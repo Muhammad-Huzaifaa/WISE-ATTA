@@ -1,108 +1,53 @@
 # WISE-ATTA
 
-**Official PyTorch implementation of**
+Official PyTorch implementation of **WISE-ATTA: When to Ask for Labels in Budgeted Active Test-Time Adaptation**, accepted at the **IEEE/CVF Winter Conference on Applications of Computer Vision (WACV 2027)**.
 
-**WISE-ATTA: When to Ask for Labels in Budgeted Active Test-Time Adaptation**
-
-**🎉 Accepted at WACV 2027 — IEEE/CVF Winter Conference on Applications of Computer Vision**
-
-📄 **Paper:** [arXiv:2609.37687](https://arxiv.org/abs/2609.37687)
-
-> Budget-aware active test-time adaptation for long test streams with limited supervision.
-
-<p align="center">
-  <img src="frameworks.png" alt="WISE-ATTA Framework" width="500"/>
-</p>
-
----
-
-## Table of Contents
-
-- [Overview](#overview)
-- [Highlights](#highlights)
-- [Environment](#environment)
-- [Datasets](#datasets)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Results](#results)
-- [Acknowledgements](#acknowledgements)
-- [Contact](#contact)
-- [Citation](#citation)
-
----
-
-## Overview
-
-**WISE-ATTA** studies a practical setting of **budgeted active test-time adaptation (ATTA)**, where labels are available for only a small fraction of test batches rather than every batch. The key question is not only **what to label**, but also **when to spend the labeling budget** over time.
-
-To address this, WISE-ATTA introduces two complementary components:
-
-- **Budget-paced batch selection**, which decides **when** to request supervision using lightweight online utility signals.
-- **Drift-based sample selection**, which decides **what** to label by selecting a single informative sample based on prediction drift relative to an EMA anchor model.
-
----
-
-## Highlights
-
-- **Budgeted ATTA** for long test streams
-- **Selective supervision over time** instead of labeling every batch
-- **Single-sample querying** for selected batches
-- No replay buffer required
-- Evaluated on **ImageNet-C/R/K/A**
+**Paper:** [arXiv:2609.37687](https://arxiv.org/abs/2609.37687)
 
 ---
 
 ## Environment
 
-Tested with:
+Experiments were conducted using the following environment:
 
-- **Driver Version:** 550.163.01
-- **CUDA Version:** 12.4
-- **Python Version:** 3.10.12
+- **NVIDIA Driver:** 550.163.01
+- **CUDA:** 12.4
+- **Python:** 3.10.12
 
----
+## Installation
+
+Clone the repository:
+
+```bash
+git clone https://github.com/Muhammad-Huzaifaa/WISE-ATTA.git
+cd WISE-ATTA
+```
+
+Create and activate the Conda environment:
+
+```bash
+conda env create -f environment.yml
+conda activate wise-atta
+```
 
 ## Datasets
 
-We evaluate on the following benchmarks:
+Experiments are conducted on the following benchmarks:
 
-- **[ImageNet-C](https://zenodo.org/records/2235448)**: Common corruptions
-- **[ImageNet-R](https://github.com/hendrycks/imagenet-r)**: Renditions
-- **[ImageNet-K / ImageNet-Sketch](https://github.com/HaohanWang/ImageNet-Sketch)**: Sketches
-- **[ImageNet-A](https://github.com/hendrycks/natural-adv-examples)**: Adversarial examples
+- [ImageNet-C](https://zenodo.org/records/2235448) — Common corruptions
+- [ImageNet-R](https://github.com/hendrycks/imagenet-r) — Renditions
+- [ImageNet-K (ImageNet-Sketch)](https://github.com/HaohanWang/ImageNet-Sketch) — Sketches
+- [ImageNet-A](https://github.com/hendrycks/natural-adv-examples) — Adversarial examples
 
-After downloading the datasets, update the dataset root in `classification/conf.py`:
+After downloading the datasets, specify the dataset directory in `classification/conf.py`:
 
 ```python
 _C.DATA_DIR = "/your/dataset/path"
 ```
 
----
-
-## Installation
-
-1. Clone the repository:
-
-   ```bash
-   git clone https://github.com/Muhammad-Huzaifaa/WISE-ATTA.git
-   cd WISE-ATTA
-   ```
-
-2. Create the conda environment:
-
-   ```bash
-   conda update conda
-   conda env create -f environment.yml
-   conda activate wise-atta
-   ```
-
----
-
 ## Usage
 
-### Example Run on ImageNet-C
-
-The following command runs WISE-ATTA on ImageNet-C using the default configuration:
+To run WISE-ATTA on ImageNet-C using the default configuration:
 
 ```bash
 cd classification
@@ -111,64 +56,61 @@ python test_time.py --cfg cfgs/imagenet_c/wiseatta.yaml MODEL.ADAPTATION wise
 
 ### Configuration
 
-Modify parameters in the config files (e.g., `cfgs/imagenet_c/wiseatta.yaml`):
+Experimental settings can be modified through the corresponding configuration files, such as `cfgs/imagenet_c/wiseatta.yaml`.
 
-- `MODEL.ADAPTATION`: Batch selection strategy (`wise`, `uniform`, or `random`)
-- `MODEL.EDGE_ARCH`: Backbone used for adaptation
-- `MODEL.LABEL_RATIO`: Fraction of batches to label
-
----
+| Parameter | Description |
+|---|---|
+| `MODEL.ADAPTATION` | Batch selection strategy (`wise`, `uniform`, or `random`) |
+| `MODEL.EDGE_ARCH` | Backbone architecture used for adaptation |
+| `MODEL.LABEL_RATIO` | Fraction of test batches selected for labeling |
 
 ## Results
 
-WISE-ATTA achieves competitive or better performance than prior ATTA methods while using fewer labels. In particular, with 1 label per batch, WISE-ATTA achieves the best average error across ImageNet-R/K/A, and remains competitive even at 0.5 labels per batch.
+The following table reports classification error (%) on ImageNet-R, ImageNet-K, and ImageNet-A under different labeling budgets. Lower values indicate better performance.
 
-| #Labels | Method | ImageNet-R | ImageNet-K | ImageNet-A | Avg. Error |
+| # Labels | Method | ImageNet-R | ImageNet-K | ImageNet-A | Avg. Error |
 |---|---|---:|---:|---:|---:|
-| - | TENT | 57.8 | 69.5 | 99.9 | 75.7 |
-| - | CoTTA | 57.3 | 69.9 | 99.8 | 75.7 |
-| - | SAR | 57.2 | 68.5 | 99.9 | 75.2 |
-| - | ETA | 54.0 | 64.3 | 99.8 | 72.7 |
-| - | CEMA† | 51.4 | 65.6 | 97.7 | 71.6 |
+| – | TENT | 57.8 | 69.5 | 99.9 | 75.7 |
+| – | CoTTA | 57.3 | 69.9 | 99.8 | 75.7 |
+| – | SAR | 57.2 | 68.5 | 99.9 | 75.2 |
+| – | ETA | 54.0 | 64.3 | 99.8 | 72.7 |
+| – | CEMA† | 51.4 | 65.6 | 97.7 | 71.6 |
 | 3 | SimATTA | 51.3 | 64.0 | 97.2 | 70.8 |
 | 3 | HILTTA | 52.6 | 63.3 | 98.3 | 71.4 |
 | 1 | EATTA | 52.8 | 64.1 | 99.1 | 72.0 |
 | 1 | **WISE-ATTA** | **51.2** | **63.8** | **97.7** | **70.9** |
-| 0.5 | **WISE-ATTA** | 52.2 | 64.6 | 98.3 | 71.7 |
+| 0.5 | **WISE-ATTA** | **52.2** | **64.6** | **98.3** | **71.7** |
 
----
+WISE-ATTA achieves an average error of **70.9%** with one label per batch and **71.7%** with an average budget of 0.5 labels per batch, demonstrating competitive performance under limited supervision.
 
 ## Acknowledgements
 
-This repository is built upon the excellent codebases:
+This implementation builds upon the following open-source repositories:
 
-- [EATTA](https://github.com/flash1803/EATTA/)
-- [test-time-adaptation](https://github.com/mariodoebler/test-time-adaptation)
+- [EATTA](https://github.com/flash1803/EATTA)
+- [Test-Time Adaptation](https://github.com/mariodoebler/test-time-adaptation)
 
-We also thank the authors of prior TTA and ATTA methods that inspired this work, including TENT, SimATTA, CEMA, HILTTA, and EATTA.
-
----
-
-## Contact
-
-For questions or collaborations, please contact:
-
-Muhammad Huzaifa  
-muhammad.huzaifa [at] cispa.de
-
----
+We acknowledge the contributions of prior work on test-time adaptation and active test-time adaptation, including TENT, SimATTA, CEMA, HILTTA, and EATTA.
 
 ## Citation
 
-If you find this work useful, please cite our **WACV 2027** paper:
+If you find this repository useful, please cite our WACV 2027 paper:
 
 ```bibtex
 @inproceedings{huzaifa2027wiseatta,
   title     = {{WISE-ATTA}: When to Ask for Labels in Budgeted Active Test-Time Adaptation},
   author    = {Huzaifa, Muhammad and Schönherr, Lea and Eisenhofer, Thorsten},
-  booktitle = {IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)},
+  booktitle = {Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)},
   year      = {2027}
 }
 ```
 
-**Preprint:** [arXiv:2609.37687](https://arxiv.org/abs/2609.37687)
+The preprint is available at [arXiv:2609.37687](https://arxiv.org/abs/2609.37687).
+
+## Contact
+
+For questions regarding the implementation or experimental results, please contact:
+
+**Muhammad Huzaifa**  
+CISPA Helmholtz Center for Information Security  
+muhammad.huzaifa [at] cispa.de
