@@ -1,12 +1,17 @@
 # WISE-ATTA
 
-Official PyTorch implementation of  
+**Official PyTorch implementation of**
+
 **WISE-ATTA: When to Ask for Labels in Budgeted Active Test-Time Adaptation**
+
+**🎉 Accepted at WACV 2027 — IEEE/CVF Winter Conference on Applications of Computer Vision**
+
+📄 **Paper:** [arXiv:2609.37687](https://arxiv.org/abs/2609.37687)
 
 > Budget-aware active test-time adaptation for long test streams with limited supervision.
 
 <p align="center">
-  <img src="frameworks.png" alt="Framework" width="500"/>
+  <img src="frameworks.png" alt="WISE-ATTA Framework" width="500"/>
 </p>
 
 ---
@@ -19,7 +24,6 @@ Official PyTorch implementation of
 - [Datasets](#datasets)
 - [Installation](#installation)
 - [Usage](#usage)
-- [Batch Selection Strategies](#batch-selection-strategies)
 - [Results](#results)
 - [Acknowledgements](#acknowledgements)
 - [Contact](#contact)
@@ -32,6 +36,7 @@ Official PyTorch implementation of
 **WISE-ATTA** studies a practical setting of **budgeted active test-time adaptation (ATTA)**, where labels are available for only a small fraction of test batches rather than every batch. The key question is not only **what to label**, but also **when to spend the labeling budget** over time.
 
 To address this, WISE-ATTA introduces two complementary components:
+
 - **Budget-paced batch selection**, which decides **when** to request supervision using lightweight online utility signals.
 - **Drift-based sample selection**, which decides **what** to label by selecting a single informative sample based on prediction drift relative to an EMA anchor model.
 
@@ -61,7 +66,7 @@ Tested with:
 
 We evaluate on the following benchmarks:
 
-- **[ImageNet-C](https://zenodo.org/records/2235448#.Yj2RO_co_mF)**: Common corruptions
+- **[ImageNet-C](https://zenodo.org/records/2235448)**: Common corruptions
 - **[ImageNet-R](https://github.com/hendrycks/imagenet-r)**: Renditions
 - **[ImageNet-K / ImageNet-Sketch](https://github.com/HaohanWang/ImageNet-Sketch)**: Sketches
 - **[ImageNet-A](https://github.com/hendrycks/natural-adv-examples)**: Adversarial examples
@@ -77,12 +82,14 @@ _C.DATA_DIR = "/your/dataset/path"
 ## Installation
 
 1. Clone the repository:
+
    ```bash
    git clone https://github.com/Muhammad-Huzaifaa/WISE-ATTA.git
-   cd wise-atta
+   cd WISE-ATTA
    ```
 
 2. Create the conda environment:
+
    ```bash
    conda update conda
    conda env create -f environment.yml
@@ -106,17 +113,13 @@ python test_time.py --cfg cfgs/imagenet_c/wiseatta.yaml MODEL.ADAPTATION wise
 
 Modify parameters in the config files (e.g., `cfgs/imagenet_c/wiseatta.yaml`):
 
-- `MODEL.ADAPTATION`: batch selection strategy (`wise`, `uniform`, or `random`)
-- `MODEL.EDGE_ARCH`: backbone used for adaptation
+- `MODEL.ADAPTATION`: Batch selection strategy (`wise`, `uniform`, or `random`)
+- `MODEL.EDGE_ARCH`: Backbone used for adaptation
 - `MODEL.LABEL_RATIO`: Fraction of batches to label
-
 
 ---
 
-
-
-
-## Results 
+## Results
 
 WISE-ATTA achieves competitive or better performance than prior ATTA methods while using fewer labels. In particular, with 1 label per batch, WISE-ATTA achieves the best average error across ImageNet-R/K/A, and remains competitive even at 0.5 labels per batch.
 
@@ -132,8 +135,6 @@ WISE-ATTA achieves competitive or better performance than prior ATTA methods whi
 | 1 | EATTA | 52.8 | 64.1 | 99.1 | 72.0 |
 | 1 | **WISE-ATTA** | **51.2** | **63.8** | **97.7** | **70.9** |
 | 0.5 | **WISE-ATTA** | 52.2 | 64.6 | 98.3 | 71.7 |
-
-
 
 ---
 
@@ -159,12 +160,15 @@ muhammad.huzaifa [at] cispa.de
 
 ## Citation
 
-If you find this work useful, please cite:
+If you find this work useful, please cite our **WACV 2027** paper:
 
 ```bibtex
-@article{huzaifa2026wiseatta,
-  title   = {{WISE-ATTA}: When to Ask for Labels in Budgeted Active Test-Time Adaptation},
-  author  = {Huzaifa, Muhammad and Schönherr, Lea and Eisenhofer, Thorsten},
-  journal = {arXiv preprint arXiv:2609.37687},
-  year    = {2026}
+@inproceedings{huzaifa2027wiseatta,
+  title     = {{WISE-ATTA}: When to Ask for Labels in Budgeted Active Test-Time Adaptation},
+  author    = {Huzaifa, Muhammad and Schönherr, Lea and Eisenhofer, Thorsten},
+  booktitle = {IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)},
+  year      = {2027}
 }
+```
+
+**Preprint:** [arXiv:2609.37687](https://arxiv.org/abs/2609.37687)
